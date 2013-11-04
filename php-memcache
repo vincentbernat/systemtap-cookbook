@@ -11,16 +11,8 @@ memcache extension.
 
 import sys
 import os
-import subprocess
 import stap
 import jinja2
-
-
-def php_extension_dir():
-    """Get PHP extension directory."""
-    extension_dir = subprocess.check_output(["php", "-r",
-                                             'echo ini_get("extension_dir");'])
-    return extension_dir
 
 
 @stap.d.enable
@@ -94,7 +86,7 @@ probe timer.ms({{ options.interval }}) {
     total = 0;
 }
 """)
-    probe = probe.render(memcache_so=os.path.join(php_extension_dir(),
+    probe = probe.render(memcache_so=os.path.join(stap.h.php.extension_dir(),
                                                   "memcache.so"),
                          options=options).encode("utf-8")
     stap.execute(probe, options)
@@ -189,7 +181,7 @@ probe process("{{ options.php }}").provider("php").mark("function__return") {
 }
 {% endif %}
 """)
-    probe = probe.render(memcache_so=os.path.join(php_extension_dir(),
+    probe = probe.render(memcache_so=os.path.join(stap.h.php.extension_dir(),
                                                   "memcache.so"),
                          options=options).encode("utf-8")
     stap.execute(probe, options)

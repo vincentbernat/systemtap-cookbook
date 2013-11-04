@@ -5,8 +5,9 @@ import subprocess
 
 from stap import log
 from stap import d
+from stap import h
 
-__all__ = [ "run", "execute", "d" ]
+__all__ = [ "run", "execute", "d", "h" ]
 
 def get_subcommands(module):
     """Extract list of subcommands in the given module."""
