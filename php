@@ -27,6 +27,8 @@ import jinja2
             help="each bucket represents MS milliseconds")
 @stap.d.arg("--slow", action="store_true",
             help="log slowest requests")
+@stap.d.arg("--function", default="", type=str, metavar="FN",
+            help="profile FN instead of the whole request")
 def profile(options):
     """Profile PHP requests.
 
@@ -38,27 +40,63 @@ def profile(options):
 
     """
     probe = jinja2.Template(ur"""
-global start%, intervals;
-{% if options.slow %}
+global start%, stop%, intervals;
+{%- if options.slow %}
 global slow%;
-{% endif %}
+{%- endif %}
 
 probe process("{{ options.php }}").provider("php").mark("request__startup") {
-    if (user_string_n($arg2, {{ options.uri|length() }}) == "{{ options.uri }}")
+    if (user_string_n($arg2, {{ options.uri|length() }}) == "{{ options.uri }}") {
+{%- if options.function %}
+        start[pid()] = 1;
+{%- else %}
         start[pid()] = gettimeofday_ms();
+{%- endif %}
+        stop[pid()] = 0;
+    }
 }
 
+{% if options.function %}
+function fn_name:string(name:long, class:long) {
+    try {
+      fn = sprintf("%s::%s",
+                   user_string(class),
+                   user_string(name));
+    } catch {
+      fn = "";
+    }
+    return fn;
+}
+
+probe process("{{ options.php }}").provider("php").mark("function__entry") {
+    fn = fn_name($arg1, $arg4);
+    if (fn == "{{ options.function }}" && start[pid()] == 1)
+      start[pid()] = gettimeofday_ms();
+}
+
+probe process("{{ options.php }}").provider("php").mark("function__return") {
+    fn = fn_name($arg1, $arg4);
+    if (fn == "{{ options.function }}" && start[pid()] > 1)
+      stop[pid()] = gettimeofday_ms();
+}
+{% endif %}
+
 probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
+{%- if options.function %}
+    t = stop[pid()];
+{%- else %}
     t = gettimeofday_ms();
+{%- endif %}
     old_t = start[pid()];
-    if (old_t > 0) {
+    if (old_t > 1 && t > 1) {
         intervals <<< t - old_t;
-{% if options.slow %}
+{%- if options.slow %}
         // We may miss some values...
         slow[t - old_t] = sprintf("%5s %s", user_string($arg3), user_string($arg2));
-{% endif %}
+{%- endif %}
     }
     delete start[pid()];
+    delete stop[pid()];
 }
 
 probe timer.ms({{ options.interval }}) {
@@ -69,6 +107,9 @@ probe timer.ms({{ options.interval }}) {
     print(@hist_linear(intervals, 0, {{ options.step * 20 }}, {{ options.step }}));
 {%- endif %}
     printf(" — URI prefix: %s\n", "{{ options.uri }}");
+{%- if options.function %}
+    printf(" — Function: %s\n", "{{ options.function }}");
+{%- endif %}
     printf(" — min:%dms avg:%dms max:%dms count:%d\n",
                      @min(intervals), @avg(intervals),
                      @max(intervals), @count(intervals));
