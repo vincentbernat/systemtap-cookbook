@@ -38,6 +38,9 @@ def get_options(module):
     parser.add_argument("--stap-arg", "-a", metavar="ARG", type=str, nargs="+",
                         dest="stapargs",
                         help="pass an extra argument to the stap utility")
+    parser.add_argument("--stap-no-overload", action="store_true",
+                        dest="stapnooverload",
+                        help="don't check for overload (dangerous)")
     parser.add_argument("--dump", "-D", action="store_true",
                         help="dump the systemtap script source")
 
@@ -76,6 +79,8 @@ def execute(probe, options):
         print probe
         return
     cmd = ["stap"]
+    if options.stapnooverload:
+        cmd += ["-DSTP_NO_OVERLOAD"]
     if options.stapargs:
         cmd += options.stapargs
     cmd += ["-"]
