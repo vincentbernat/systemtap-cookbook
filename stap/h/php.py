@@ -13,7 +13,15 @@ def extension_dir():
 
 
 class backtrace(object):
-    """Helper functions to get PHP backtraces"""
+    """Helper functions to get PHP backtraces.
+
+    When a backtrace should be displayed, call :method:`display`. The
+    backtrace will be displayed by reacting to function
+    return. Therefore, displaying the backtrace can take some time
+    (until the request is shutdown). To avoid to interlace several
+    backtraces, only one backtrace can be displayed at a given time.
+
+    """
 
     def __init__(self, interpreter):
         self.interpreter = interpreter
