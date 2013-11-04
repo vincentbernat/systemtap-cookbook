@@ -20,48 +20,54 @@ class backtrace(object):
 
     def init(self):
         code = jinja2.Template(u"""
-    global __phptrace%;
-    global __phpdepth%;
+    global __phptraceenable;
+    global __phptraceskip;
 
-    function php_log(mark, arg1, arg2, arg3, arg4) {
+    probe process("{{ php }}").provider("php").mark("request__shutdown") {
+        if (__phptraceenable == pid())
+          __phptraceenable = 0;
+    }
+    probe process("{{ php }}").provider("php").mark("function__entry") {
+        if (__phptraceenable == pid())
+          __phptraceskip++;
+    }
+    probe process("{{ php }}").provider("php").mark("function__return") {
+        if (__phptraceenable != pid()) next;
+        if (__phptraceskip > 0) {
+          __phptraceskip--;
+          next;
+        }
         try {
           fn = sprintf(" %s::%s() [in %s:%d]",
-                       user_string(arg4),
-                       user_string(arg1),
-                       user_string(arg2),
-                       arg3);
+                       user_string($arg4),
+                       user_string($arg1),
+                       user_string($arg2),
+                       $arg3);
         } catch {
           fn = "";
         }
         if (fn != "") {
-          d = __phpdepth[pid()];
-          if (mark == "←") {
-            __phpdepth[pid()] = d-1;
-            delete __phptrace[pid(), d-1];
-          } else {
-            __phptrace[pid(), d] = fn;
-            __phpdepth[pid()] = d+1;
-          }
+          printf("%s\\n", fn);
         }
-    }
-
-    probe process("{{ php }}").provider("php").mark("request__startup") {
-        __phpdepth[pid()] = 0;
-    }
-    probe process("{{ php }}").provider("php").mark("function__entry") {
-        php_log("→", $arg1, $arg2, $arg3, $arg4);
-    }
-    probe process("{{ php }}").provider("php").mark("function__return") {
-        php_log("←", $arg1, $arg2, $arg3, $arg4);
     }
 """)
         return code.render(php=self.interpreter)
 
     def display(self):
-        """Display PHP backtrace for current PID"""
+        """Enable PHP backtrace for current PID.
+
+        The trace is displayed on standard output. It is not possible
+        to display several traces at once, therefore, displaying a
+        trace disable displaying trace for other processes.
+
+        """
         return r"""
-foreach ([p, d+] in __phptrace) {
-    if (p != pid()) continue;
-    printf("%s\n", __phptrace[p,d]);
+if (__phptraceenable == 0) {
+  __phptraceenable = pid();
+  __phptraceskip = 0;
 }
 """
+
+    def busy(self):
+        """Tell if we are busy displaying a backtrace."""
+        return "(__phptraceenable != 0)"

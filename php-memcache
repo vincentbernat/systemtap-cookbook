@@ -121,11 +121,15 @@ function display_request(req:long, what:string) {
 }
 
 probe process("{{ memcache_so }}").function("mmc_server_deactivate") {
+    {% if options.backtrace %}
+    if ({{ backtrace.busy() }}) next;
+    {% endif %}
     try {
         server = user_string_n($mmc->host, 16);
     } catch {
         server = "???";
     }
+    printf("\n\n✄-------------------------------\n");
     ansi_set_color2(30, 41);
     printf("⚠ Failure from %s: %d (%s) \n",
            server, $mmc->errnum, user_string($mmc->error));
@@ -139,8 +143,6 @@ probe process("{{ memcache_so }}").function("mmc_server_deactivate") {
     printf("PHP backtrace:\n");
     {{ backtrace.display() }}
 {% endif %}
-
-    printf("✄-------------------------------\n\n");
 }
 """)
     probe = probe.render(memcache_so=os.path.join(stap.h.php.extension_dir(),
