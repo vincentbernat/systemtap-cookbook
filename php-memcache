@@ -147,7 +147,7 @@ probe process("{{ memcache_so }}").function("mmc_server_deactivate") {
 """)
     probe = probe.render(memcache_so=os.path.join(stap.h.php.extension_dir(),
                                                   "memcache.so"),
-                         backtrace=stap.h.php.backtrace(options.php),
+                         backtrace=stap.h.php.Backtrace(options.php),
                          options=options).encode("utf-8")
     stap.execute(probe, options)
 

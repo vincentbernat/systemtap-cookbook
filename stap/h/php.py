@@ -12,7 +12,7 @@ def extension_dir():
     return extension_dir
 
 
-class backtrace(object):
+class Backtrace(object):
     """Helper functions to get PHP backtraces.
 
     When a backtrace should be displayed, call :method:`display`. The
@@ -32,8 +32,10 @@ class backtrace(object):
     global __phptraceskip;
 
     probe process("{{ php }}").provider("php").mark("request__shutdown") {
-        if (__phptraceenable == pid())
-          __phptraceenable = 0;
+        if (__phptraceenable != pid()) next;
+        printf(" — End of backtrace for %s %s\\n",
+           user_string($arg3), user_string($arg2));
+        __phptraceenable = 0;
     }
     probe process("{{ php }}").provider("php").mark("function__entry") {
         if (__phptraceenable == pid())
