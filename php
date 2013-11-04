@@ -33,11 +33,6 @@ def profile(options):
     """Profile PHP requests.
 
     Return distributions of response time for PHP requests.
-
-    This probe relies on PHP Dtrace support. Be sure that PHP was
-    compiled with :option:`--enable-dtrace` for this probe to work
-    correctly.
-
     """
     probe = jinja2.Template(ur"""
 global start%, intervals;
@@ -129,6 +124,66 @@ probe timer.ms({{ options.interval }}) {
     }
     delete slow;
 {% endif %}
+}
+""")
+    probe = probe.render(options=options).encode("utf-8")
+    stap.execute(probe, options)
+
+
+@stap.d.enable
+@stap.d.arg("--php", type=str, default="/usr/lib/apache2/modules/libphp5.so",
+            help="path to PHP process or module")
+@stap.d.arg("--uri", type=str, default="/", metavar="PREFIX",
+            help="restrict requests to URI prefixed by PREFIX")
+@stap.d.arg("--interval", default=500, type=int, metavar="MS",
+            help="delay between screen updates in milliseconds")
+@stap.d.arg("--limit", default=20, type=int, metavar="N",
+            help="display the top N active requests")
+def activereqs(options):
+    """Display active PHP requests.
+
+    Active PHP requests are displayed in order of execution length. A
+    summary is also provided to show the number of active requests
+    over the number of total requests.
+
+    """
+    probe = jinja2.Template(ur"""
+global request%, since%, requests, actives;
+
+probe process("{{ options.php }}").provider("php").mark("request__startup") {
+    if (user_string_n($arg2, {{ options.uri|length() }}) == "{{ options.uri }}") {
+      request[pid()] = sprintf("%5s %s", user_string($arg3), user_string($arg2));
+      since[pid()] = gettimeofday_ms();
+      requests++; actives++;
+    }
+}
+
+probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
+    if (since[pid()]) {
+      delete request[pid()];
+      delete since[pid()];
+      actives--;
+    }
+}
+
+probe timer.ms({{ options.interval }}) {
+    t = gettimeofday_ms();
+    ansi_clear_screen();
+    foreach (p in since+ limit {{ options.limit }}) {
+      r = request[p];
+      if (strlen(r) > 60)
+        r = sprintf("%s...%s", substr(r, 0, 45), substr(r, strlen(r) - 15, strlen(r)));
+      printf("   %6dms: %s\n", t - since[p], r);
+    }
+
+    for (i = actives; i < {{ options.limit }}; i++) printf("\n");
+    printf("\n");
+    ansi_set_color2(30, 46);
+    printf(" ♦ Active requests: %-6d  \n", actives);
+    printf(" ♦  Total requests: %-6d  \n", requests);
+    ansi_reset_color();
+
+    requests = 0;
 }
 """)
     probe = probe.render(options=options).encode("utf-8")
