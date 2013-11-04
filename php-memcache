@@ -107,8 +107,7 @@ def failures(options):
     """
     probe = jinja2.Template(ur"""
 {% if options.backtrace %}
-global trace%;
-global depth%;
+{{ backtrace.init() }}
 {% endif %}
 
 function display_request(req:long, what:string) {
@@ -138,51 +137,15 @@ probe process("{{ memcache_so }}").function("mmc_server_deactivate") {
 
 {% if options.backtrace %}
     printf("PHP backtrace:\n");
-    foreach ([p, d+] in trace) {
-      if (p != pid()) continue;
-      printf("%s\n", trace[p,d]);
-    }
+    {{ backtrace.display() }}
 {% endif %}
 
     printf("✄-------------------------------\n\n");
 }
-
-{% if options.backtrace %}
-function php_log(mark, arg1, arg2, arg3, arg4) {
-    try {
-      fn = sprintf(" %s::%s() [in %s:%d]",
-                   user_string(arg4),
-                   user_string(arg1),
-                   user_string(arg2),
-                   arg3);
-    } catch {
-      fn = "";
-    }
-    if (fn != "") {
-      d = depth[pid()];
-      if (mark == "←") {
-        depth[pid()] = d-1;
-        delete trace[pid(), d-1];
-      } else {
-        trace[pid(), d] = fn;
-        depth[pid()] = d+1;
-      }
-    }
-}
-
-probe process("{{ options.php }}").provider("php").mark("request__startup") {
-    depth[pid()] = 0;
-}
-probe process("{{ options.php }}").provider("php").mark("function__entry") {
-    php_log("→", $arg1, $arg2, $arg3, $arg4);
-}
-probe process("{{ options.php }}").provider("php").mark("function__return") {
-    php_log("←", $arg1, $arg2, $arg3, $arg4);
-}
-{% endif %}
 """)
     probe = probe.render(memcache_so=os.path.join(stap.h.php.extension_dir(),
                                                   "memcache.so"),
+                         backtrace=stap.h.php.backtrace(options.php),
                          options=options).encode("utf-8")
     stap.execute(probe, options)
 
