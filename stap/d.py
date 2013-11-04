@@ -1,6 +1,8 @@
 """Useful decorators for stap functions."""
 
 import functools
+import logging
+logger = logging.getLogger(__name__)
 
 def warn(what):
     """Emit a warning about a specific function."""
