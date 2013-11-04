@@ -40,19 +40,21 @@ def profile(options):
 
     """
     probe = jinja2.Template(ur"""
-global start%, stop%, intervals;
+global start%, intervals;
 {%- if options.slow %}
 global slow%;
+{%- endif %}
+{%- if options.function %}
+global request%;
 {%- endif %}
 
 probe process("{{ options.php }}").provider("php").mark("request__startup") {
     if (user_string_n($arg2, {{ options.uri|length() }}) == "{{ options.uri }}") {
 {%- if options.function %}
-        start[pid()] = 1;
+        request[pid()] = sprintf("%5s %s", user_string($arg3), user_string($arg2));
 {%- else %}
         start[pid()] = gettimeofday_ms();
 {%- endif %}
-        stop[pid()] = 0;
     }
 }
 
@@ -69,34 +71,41 @@ function fn_name:string(name:long, class:long) {
 }
 
 probe process("{{ options.php }}").provider("php").mark("function__entry") {
-    fn = fn_name($arg1, $arg4);
-    if (fn == "{{ options.function }}" && start[pid()] == 1)
-      start[pid()] = gettimeofday_ms();
+    if (request[pid()] != "") {
+      fn = fn_name($arg1, $arg4);
+      if (fn == "{{ options.function }}")
+        start[pid()] = gettimeofday_ms();
+    }
 }
 
 probe process("{{ options.php }}").provider("php").mark("function__return") {
-    fn = fn_name($arg1, $arg4);
-    if (fn == "{{ options.function }}" && start[pid()] > 1)
-      stop[pid()] = gettimeofday_ms();
+    if (start[pid()] && request[pid()] != "") {
+      fn = fn_name($arg1, $arg4);
+      if (fn == "{{ options.function }}")
+        record(request[pid()]);
+    }
 }
 {% endif %}
 
-probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
-{%- if options.function %}
-    t = stop[pid()];
-{%- else %}
+function record(uri:string) {
     t = gettimeofday_ms();
-{%- endif %}
     old_t = start[pid()];
     if (old_t > 1 && t > 1) {
         intervals <<< t - old_t;
 {%- if options.slow %}
         // We may miss some values...
-        slow[t - old_t] = sprintf("%5s %s", user_string($arg3), user_string($arg2));
+        slow[t - old_t] = uri
 {%- endif %}
     }
     delete start[pid()];
-    delete stop[pid()];
+}
+
+probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
+{%- if options.function %}
+    delete request[pid()];
+{%- else %}
+    record(sprintf("%5s %s", user_string($arg3), user_string($arg2)));
+{%- endif %}
 }
 
 probe timer.ms({{ options.interval }}) {
