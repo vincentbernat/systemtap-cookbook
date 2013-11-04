@@ -25,6 +25,8 @@ import jinja2
             help="display a logarithmic histogram")
 @stap.d.arg("--step", type=int, default=10, metavar="MS",
             help="each bucket represents MS milliseconds")
+@stap.d.arg("--slow", action="store_true",
+            help="log slowest requests")
 def profile(options):
     """Profile PHP requests.
 
@@ -37,6 +39,9 @@ def profile(options):
     """
     probe = jinja2.Template(ur"""
 global start%, intervals;
+{% if options.slow %}
+global slow%;
+{% endif %}
 
 probe process("{{ options.php }}").provider("php").mark("request__startup") {
     if (user_string_n($arg2, {{ options.uri|length() }}) == "{{ options.uri }}")
@@ -46,7 +51,13 @@ probe process("{{ options.php }}").provider("php").mark("request__startup") {
 probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
     t = gettimeofday_ms();
     old_t = start[pid()];
-    if (old_t) intervals <<< t - old_t;
+    if (old_t > 0) {
+        intervals <<< t - old_t;
+{% if options.slow %}
+        // We may miss some values...
+        slow[t - old_t] = sprintf("%5s %s", user_string($arg3), user_string($arg2));
+{% endif %}
+    }
     delete start[pid()];
 }
 
@@ -61,6 +72,13 @@ probe timer.ms({{ options.interval }}) {
     printf(" — min:%dms avg:%dms max:%dms count:%d\n",
                      @min(intervals), @avg(intervals),
                      @max(intervals), @count(intervals));
+{% if options.slow %}
+    printf(" — slowest requests:\n");
+    foreach (t- in slow limit 10) {
+      printf("   %6dms: %s\n", t, slow[t]);
+    }
+    delete slow;
+{% endif %}
 }
 """)
     probe = probe.render(options=options).encode("utf-8")
