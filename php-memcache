@@ -1,0 +1,198 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
+"""PHP memcache related tools
+============================
+
+This script will handle various instrumentation related to PHP
+memcache extension.
+
+"""
+
+import sys
+import os
+import subprocess
+import stap
+import jinja2
+
+
+def php_extension_dir():
+    """Get PHP extension directory."""
+    extension_dir = subprocess.check_output(["php", "-r",
+                                             'echo ini_get("extension_dir");'])
+    return extension_dir
+
+
+@stap.d.enable
+@stap.d.arg("--interval", default=5000, type=int,
+            help="delay between screen updates in milliseconds")
+@stap.d.arg("--limit", default=10, type=int, metavar="N",
+            help="don't display more than N keys")
+@stap.d.arg("--server", action="store_true",
+            help="display top keys per server")
+@stap.d.arg("--keys", default=100000, type=int, metavar="N",
+            help="allocate space for N keys")
+def topkeys(options):
+    """Display the top requested keys.
+
+    No difference is made between a GET or a SET. The :option:`server`
+    option allows one to display the top requests for each server
+    instead of a global top.
+
+    """
+    probe = jinja2.Template(ur"""
+global keys[{{ options.keys }}];
+global total;
+
+probe process("{{ memcache_so }}").function("mmc_pool_schedule") {
+{%- if options.server %}
+    try {
+        server = user_string_n($mmc->host, 16);
+    } catch {
+        server = "???";
+    }
+{%- endif %}
+    keylen = $request->key_len;
+    if (keylen <= 0) next;
+    key = user_string_n($request->key, keylen);
+{%- if options.server %}
+    keys[server, key]++;
+{%- else %}
+    keys[key]++;
+{%- endif %}
+    total++;
+}
+
+probe timer.ms({{ options.interval }}) {
+    ansi_clear_screen();
+    ansi_cursor_hide();
+    ansi_set_color2(30, 42);
+{% if options.server %}
+    printf("%6s │ %-16s │ %-20s ", "Count", "Server", "Key");
+{% else %}
+    printf("%6s │ %20s ", "Count", "Key");
+{% endif %}
+    ansi_reset_color();
+    ansi_new_line();
+{% if options.server %}
+    foreach ([server, key] in keys- limit {{ options.limit }}) {
+        printf("%6d │ %-16s │ %-20s", keys[server, key], server, key);
+        ansi_new_line();
+    }
+{% else %}
+    foreach (key in keys- limit {{ options.limit }}) {
+        printf("%6d │ %20s", keys[key], key);
+        ansi_new_line();
+    }
+{% endif %}
+    ansi_new_line();
+    ansi_set_color2(30, 46);
+    printf(" Total: %6d ", total);
+    ansi_reset_color();
+    ansi_new_line();
+    delete keys;
+    total = 0;
+}
+""")
+    probe = probe.render(memcache_so=os.path.join(php_extension_dir(),
+                                                  "memcache.so"),
+                         options=options).encode("utf-8")
+    stap.execute(probe, options)
+
+
+@stap.d.enable
+@stap.d.arg("--php", type=str, default="/usr/lib/apache2/modules/libphp5.so",
+            help="path to PHP process or module")
+@stap.d.arg("--no-php-backtrace", dest="backtrace",
+            action="store_false",
+            help="do not display a PHP backtrace")
+def failures(options):
+    """Display traceback for failures as well as key if available.
+
+    Displaying the PHP traceback can be resource intensive. You can
+    disable this with :option:`--no-php-backtrace`.
+
+    """
+    probe = jinja2.Template(ur"""
+{% if options.backtrace %}
+global trace%;
+global depth%;
+{% endif %}
+
+function display_request(req:long, what:string) {
+    if (req == 0 || @cast(req, "mmc_request_t", "{{ memcache_so }}")->key_len == 0) {
+        printf("   %s: none\n", what);
+        return 0;
+    }
+    key = user_string_n(@cast(req, "mmc_request_t", "{{ memcache_so }}")->key,
+                        @cast(req, "mmc_request_t", "{{ memcache_so }}")->key_len);
+    printf("   %s: %s\n", what, key);
+}
+
+probe process("{{ memcache_so }}").function("mmc_server_deactivate") {
+    try {
+        server = user_string_n($mmc->host, 16);
+    } catch {
+        server = "???";
+    }
+    ansi_set_color2(30, 41);
+    printf("⚠ Failure from %s: %d (%s) \n",
+           server, $mmc->errnum, user_string($mmc->error));
+    ansi_reset_color();
+    display_request($mmc->sendreq, "sendreq");
+    display_request($mmc->readreq, "readreq");
+    display_request($mmc->buildreq, "buildreq");
+    print_ubacktrace();
+
+{% if options.backtrace %}
+    printf("PHP backtrace:\n");
+    foreach ([p, d+] in trace) {
+      if (p != pid()) continue;
+      printf("%s\n", trace[p,d]);
+    }
+{% endif %}
+
+    printf("✄-------------------------------\n\n");
+}
+
+{% if options.backtrace %}
+function php_log(mark, arg1, arg2, arg3, arg4) {
+    try {
+      fn = sprintf(" %s::%s() [in %s:%d]",
+                   user_string(arg4),
+                   user_string(arg1),
+                   user_string(arg2),
+                   arg3);
+    } catch {
+      fn = "";
+    }
+    if (fn != "") {
+      d = depth[pid()];
+      if (mark == "←") {
+        depth[pid()] = d-1;
+        delete trace[pid(), d-1];
+      } else {
+        trace[pid(), d] = fn;
+        depth[pid()] = d+1;
+      }
+    }
+}
+
+probe process("{{ options.php }}").provider("php").mark("request__startup") {
+    depth[pid()] = 0;
+}
+probe process("{{ options.php }}").provider("php").mark("function__entry") {
+    php_log("→", $arg1, $arg2, $arg3, $arg4);
+}
+probe process("{{ options.php }}").provider("php").mark("function__return") {
+    php_log("←", $arg1, $arg2, $arg3, $arg4);
+}
+{% endif %}
+""")
+    probe = probe.render(memcache_so=os.path.join(php_extension_dir(),
+                                                  "memcache.so"),
+                         options=options).encode("utf-8")
+    stap.execute(probe, options)
+
+
+stap.run(sys.modules[__name__])
