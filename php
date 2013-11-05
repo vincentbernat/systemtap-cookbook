@@ -289,4 +289,120 @@ probe timer.ms({{ options.interval }}) {
     stap.execute(probe, options)
 
 
+@stap.d.enable
+@stap.d.arg("--php", type=str, default="/usr/lib/apache2/modules/libphp5.so",
+            help="path to PHP process or module")
+@stap.d.arg("--uri", type=str, default="/", metavar="PREFIX",
+            help="restrict the profiling to URI prefixed by PREFIX")
+@stap.d.arg("--interval", default=1000, type=int,
+            help="delay between screen updates in milliseconds")
+@stap.d.arg("--busy", action="store_true",
+            help="log busiest requests")
+@stap.d.arg("--function", default="", type=str, metavar="FN",
+            help="profile FN instead of the whole request")
+def cpu(options):
+    """Display CPU usage
+
+    Return distributions of CPU usage for PHP requests.
+    """
+    probe = jinja2.Template(ur"""
+global start%, use%, usage;
+{%- if options.busy %}
+global busy%;
+{%- endif %}
+{%- if options.function %}
+global request%;
+{%- endif %}
+
+probe process("{{ options.php }}").provider("php").mark("request__startup") {
+    if (user_string_n($arg2, {{ options.uri|length() }}) == "{{ options.uri }}") {
+{%- if options.function %}
+        request[pid()] = sprintf("%5s %s", user_string($arg3), user_string($arg2));
+{%- else %}
+        start[pid()] = gettimeofday_ms();
+        use[pid()] = task_stime() + task_utime();
+{%- endif %}
+    }
+}
+
+{% if options.function %}
+function fn_name:string(name:long, class:long) {
+    try {
+      fn = sprintf("%s::%s",
+                   user_string(class),
+                   user_string(name));
+    } catch {
+      fn = "";
+    }
+    return fn;
+}
+
+probe process("{{ options.php }}").provider("php").mark("function__entry") {
+    if (request[pid()] != "") {
+      fn = fn_name($arg1, $arg4);
+      if (fn == "{{ options.function }}") {
+        start[pid()] = gettimeofday_ms();
+        use[pid()] = task_stime() + task_utime();
+      }
+    }
+}
+
+probe process("{{ options.php }}").provider("php").mark("function__return") {
+    if (start[pid()] && request[pid()] != "") {
+      fn = fn_name($arg1, $arg4);
+      if (fn == "{{ options.function }}")
+        record(request[pid()]);
+    }
+}
+{% endif %}
+
+function record(uri:string) {
+    u = task_stime() + task_utime();
+    t = gettimeofday_ms();
+    old_u = use[pid()];
+    old_t = start[pid()];
+    if (old_t && t && old_u && u && t != old_t) {
+        percent = cputime_to_msecs(u - old_u) * 100 / (t - old_t);
+        if (percent > 100) percent = 100;
+        usage <<< percent;
+{%- if options.busy %}
+        // We may miss some values...
+        busy[percent] = uri;
+{%- endif %}
+    }
+    delete start[pid()];
+    delete use[pid()];
+}
+
+probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
+{%- if options.function %}
+    delete request[pid()];
+{%- else %}
+    record(sprintf("%5s %s", user_string($arg3), user_string($arg2)));
+{%- endif %}
+}
+
+probe timer.ms({{ options.interval }}) {
+    ansi_clear_screen();
+    print(@hist_linear(usage, 0, 100, 10));
+    printf(" — URI prefix: %s\n", "{{ options.uri }}");
+{%- if options.function %}
+    printf(" — Function: %s\n", "{{ options.function }}");
+{%- endif %}
+    printf(" — min:%d%% avg:%d%% max:%d%% count:%d\n",
+                     @min(usage), @avg(usage),
+                     @max(usage), @count(usage));
+{% if options.busy %}
+    printf(" — busyest requests:\n");
+    foreach (t- in busy limit 10) {
+      printf("   %6d%%: %s\n", t, busy[t]);
+    }
+    delete busy;
+{% endif %}
+}
+""")
+    probe = probe.render(options=options).encode("utf-8")
+    stap.execute(probe, options)
+
+
 stap.run(sys.modules[__name__])
