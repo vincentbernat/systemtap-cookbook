@@ -219,7 +219,7 @@ def memory(options):
 
     """
     probe = jinja2.Template(ur"""
-global mem, pagesize;
+global mem, pagesize, track;
 {%- if not options.absolute %}
 global memusage;
 {%- endif %}
@@ -231,13 +231,17 @@ probe begin {
     pagesize = {{ memfunc }}();
 }
 
-{%- if not options.absolute %}
 probe process("{{ options.php }}").provider("php").mark("request__startup") {
-    memusage[pid()] = {{ memfunc }}() * pagesize;
-}
+    if (user_string_n($arg2, {{ options.uri|length() }}) == "{{ options.uri }}") {
+{%- if not options.absolute %}
+      memusage[pid()] = {{ memfunc }}() * pagesize;
 {%- endif %}
+      track[pid()] = 1;
+    }
+}
 
 probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
+    if (!track[pid()]) next;
     m = proc_mem_size() * pagesize;
 {%- if not options.absolute %}
     old_m = memusage[pid()];
@@ -253,6 +257,7 @@ probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
       big[m - old_m] = request;
 {%- endif %}
     }
+    delete track[pid()];
 }
 
 probe timer.ms({{ options.interval }}) {
