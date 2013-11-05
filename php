@@ -206,6 +206,9 @@ probe timer.ms({{ options.interval }}) {
             help="log bigger memory users")
 @stap.d.arg("--absolute", action="store_true",
             help="log absolute memory usage")
+@stap.d.arg("--memtype", choices=["data", "rss", "shr", "txt" "total"],
+            default="total",
+            help="memory type to watch for")
 def memory(options):
     """Display memory usage of PHP requests.
 
@@ -225,12 +228,12 @@ global big%;
 {%- endif %}
 
 probe begin {
-    pagesize = mem_page_size();
+    pagesize = {{ memfunc }}();
 }
 
 {%- if not options.absolute %}
 probe process("{{ options.php }}").provider("php").mark("request__startup") {
-    memusage[pid()] = proc_mem_size() * pagesize;
+    memusage[pid()] = {{ memfunc }}() * pagesize;
 }
 {%- endif %}
 
@@ -274,7 +277,10 @@ probe timer.ms({{ options.interval }}) {
 {% endif %}
 }
 """)
-    probe = probe.render(options=options).encode("utf-8")
+    memfunc = "proc_mem_{}".format(
+        dict(total="size").get(options.memtype, options.memtype))
+    probe = probe.render(options=options,
+                         memfunc=memfunc).encode("utf-8")
     stap.execute(probe, options)
 
 
