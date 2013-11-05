@@ -190,4 +190,92 @@ probe timer.ms({{ options.interval }}) {
     stap.execute(probe, options)
 
 
+@stap.d.enable
+@stap.d.warn("buggy")
+@stap.d.arg("--php", type=str, default="/usr/lib/apache2/modules/libphp5.so",
+            help="path to PHP process or module")
+@stap.d.arg("--uri", type=str, default="/", metavar="PREFIX",
+            help="restrict the profiling to URI prefixed by PREFIX")
+@stap.d.arg("--interval", default=1000, type=int,
+            help="delay between screen updates in milliseconds")
+@stap.d.arg("--log", action="store_true",
+            help="display a logarithmic histogram")
+@stap.d.arg("--step", type=int, default=500000, metavar="BYTES",
+            help="each bucket represents BYTES bytes")
+@stap.d.arg("--big", action="store_true",
+            help="log bigger memory users")
+@stap.d.arg("--absolute", action="store_true",
+            help="log absolute memory usage")
+def memory(options):
+    """Display memory usage of PHP requests.
+
+    This is not reliable as it seems that memory is allocated
+    early. The usage is therefore lower than it should be. You can use
+    :option:`--absolute` to get absolute memory usage instead. This
+    time, this overestimate the memory use.
+
+    """
+    probe = jinja2.Template(ur"""
+global mem, pagesize;
+{%- if not options.absolute %}
+global memusage;
+{%- endif %}
+{%- if options.big %}
+global big%;
+{%- endif %}
+
+probe begin {
+    pagesize = mem_page_size();
+}
+
+{%- if not options.absolute %}
+probe process("{{ options.php }}").provider("php").mark("request__startup") {
+    memusage[pid()] = proc_mem_size() * pagesize;
+}
+{%- endif %}
+
+probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
+    m = proc_mem_size() * pagesize;
+{%- if not options.absolute %}
+    old_m = memusage[pid()];
+    delete memusage[pid()];
+    if (old_m && m && m - old_m > 0) {
+{%- else %}
+    old_m = 0;
+    if (m) {
+{%- endif %}
+      mem <<< m - old_m;
+{%- if options.big %}
+      request = sprintf("%5s %s", user_string($arg3), user_string($arg2));
+      big[m - old_m] = request;
+{%- endif %}
+    }
+}
+
+probe timer.ms({{ options.interval }}) {
+    ansi_clear_screen();
+{%- if options.log %}
+    print(@hist_log(mem));
+{%- else %}
+    print(@hist_linear(mem, 0, {{ options.step * 20 }}, {{ options.step }}));
+{%- endif %}
+    printf(" — URI prefix: %s\n", "{{ options.uri }}");
+    printf(" — min:%s avg:%s max:%s count:%d\n",
+                     bytes_to_string(@min(mem)),
+                     bytes_to_string(@avg(mem)),
+                     bytes_to_string(@max(mem)),
+                     @count(mem));
+{% if options.big %}
+    printf(" — biggest users:\n");
+    foreach (t- in big limit 10) {
+      printf("   %10s: %s\n", bytes_to_string(t), big[t]);
+    }
+    delete big;
+{% endif %}
+}
+""")
+    probe = probe.render(options=options).encode("utf-8")
+    stap.execute(probe, options)
+
+
 stap.run(sys.modules[__name__])
