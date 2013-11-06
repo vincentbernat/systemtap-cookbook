@@ -26,7 +26,10 @@ tracing. A reasonable setup for Ubuntu Precise is the following one:
     $ apt-get install linux-headers-3.11.0-13-generic
     $ apt-get install make gcc
 
-Previous kernels are missing important symbols.
+Previous kernels are missing important symbols. Ubuntu Precise has a
+buggy GCC which is not able to handle kernels using `-mfentry`
+flag. You can workaround this by setting `PR15123_ASSUME_MFENTRY`
+environment variable to 1 with systemtap 2.4.
 
 Permissions
 -----------
