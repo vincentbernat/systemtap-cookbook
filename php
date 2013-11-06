@@ -412,6 +412,9 @@ probe timer.ms({{ options.interval }}) {
             help="delay between screen updates in milliseconds")
 @stap.d.arg("--step", type=int, default=1, metavar="MS",
             help="each bucket represents MS milliseconds")
+@stap.d.arg("--disable-hist", dest="hist",
+            action="store_false",
+            help="disable display of distribution histogram")
 @stap.d.arg("functions", nargs="+",
             type=str, metavar="FN",
             help="functions to count")
@@ -477,8 +480,10 @@ probe timer.ms({{ options.interval }}) {
       ansi_set_color2(30, 46);
       printf(" — Function %-30s: \n", fn);
       ansi_reset_color();
+{%- if options.hist %}
       print(@hist_linear(acountfn[fn], 0, {{ options.step * 20 }}, {{ options.step }}));
-      printf(" — min:%d avg:%d max:%d count:%d\n\n",
+{%- endif %}
+      printf(" min:%d avg:%d max:%d count:%d\n\n",
                      @min(acountfn[fn]), @avg(acountfn[fn]),
                      @max(acountfn[fn]), @count(acountfn[fn]));
     }
