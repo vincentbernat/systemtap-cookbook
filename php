@@ -403,4 +403,90 @@ probe timer.ms({{ options.interval }}) {
     stap.execute(probe, options)
 
 
+@stap.d.enable
+@stap.d.arg("--php", type=str, default="/usr/lib/apache2/modules/libphp5.so",
+            help="path to PHP process or module")
+@stap.d.arg("--uri", type=str, default="/", metavar="PREFIX",
+            help="restrict the profiling to URI prefixed by PREFIX")
+@stap.d.arg("--interval", default=5000, type=int,
+            help="delay between screen updates in milliseconds")
+@stap.d.arg("--step", type=int, default=1, metavar="MS",
+            help="each bucket represents MS milliseconds")
+@stap.d.arg("functions", nargs="+",
+            type=str, metavar="FN",
+            help="functions to count")
+def count(options):
+    """Distributions of PHP function calls per requests.
+
+    """
+    probe = jinja2.Template(ur"""
+global fns;
+global count%;
+global countfn;
+global acountfn;
+
+probe begin {
+    {%- for item in options.functions %}
+    fns["{{ item }}"] = 1;
+    {%- endfor %}
+}
+
+probe process("{{ options.php }}").provider("php").mark("request__startup") {
+    if (user_string_n($arg2, {{ options.uri|length() }}) == "{{ options.uri }}") {
+        count[pid(), ""] = 1;
+        foreach (fn in fns) count[pid(), fn] = 0;
+    }
+}
+
+function fn_name:string(name:long, class:long) {
+    try {
+      fn = sprintf("%s::%s",
+                   user_string(class),
+                   user_string(name));
+    } catch {
+      fn = "";
+    }
+    return fn;
+}
+
+probe process("{{ options.php }}").provider("php").mark("function__entry") {
+    if (count[pid(), ""] != 1) next;
+    fn = fn_name($arg1, $arg4);
+    if ([fn] in fns) {
+        count[pid(), fn]++
+    }
+}
+
+probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
+    if (count[pid(), ""] != 1) next;
+    foreach ([p, fn] in count) {
+      if (p != pid()) continue;
+      if (fn == "") continue;
+      countfn[fn] += count[p, fn];
+    }
+    foreach (fn in countfn) {
+      acountfn[fn] <<< countfn[fn];
+    }
+    delete countfn;
+    delete count[pid(), ""];
+}
+
+probe timer.ms({{ options.interval }}) {
+    ansi_clear_screen();
+    foreach (fn in acountfn) {
+      ansi_set_color2(30, 46);
+      printf(" — Function %-30s: \n", fn);
+      ansi_reset_color();
+      print(@hist_linear(acountfn[fn], 0, {{ options.step * 20 }}, {{ options.step }}));
+      printf(" — min:%d avg:%d max:%d count:%d\n\n",
+                     @min(acountfn[fn]), @avg(acountfn[fn]),
+                     @max(acountfn[fn]), @count(acountfn[fn]));
+    }
+    delete acountfn;
+}
+""")
+    probe = probe.render(options=options).encode("utf-8")
+    stap.execute(probe, options)
+
+
 stap.run(sys.modules[__name__])
