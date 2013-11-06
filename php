@@ -29,10 +29,8 @@ import jinja2
             help="log slowest requests")
 @stap.d.arg("--function", default="", type=str, metavar="FN",
             help="profile FN instead of the whole request")
-def profile(options):
-    """Profile PHP requests.
-
-    Return distributions of response time for PHP requests.
+def time(options):
+    """Distributions of response time for PHP requests.
     """
     probe = jinja2.Template(ur"""
 global start%, intervals;
