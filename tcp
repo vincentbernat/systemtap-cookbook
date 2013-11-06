@@ -1,0 +1,86 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
+"""TCP related tools
+============================
+
+This script will handle various instrumentation related to Linux TCP
+stack. It is heavily inspired from agentzh script:
+https://github.com/agentzh/nginx-systemtap-toolkit/blob/master/tcp-accept-queue
+
+"""
+
+import sys
+import os
+import stap
+import jinja2
+
+
+@stap.d.enable
+@stap.d.arg("port", metavar="PORT", type=int,
+            help="listening port to be analyzed")
+@stap.d.arg("--interval", default=1000, type=int,
+            help="delay between screen updates in milliseconds")
+def accept_queue_length(options):
+    """Distribution of SYN and accept queue length."""
+    probe = jinja2.Template(ur"""
+global syn_qlen_stats
+global acc_qlen_stats
+global max_syn_qlen
+global max_acc_qlen
+
+probe kernel.function("tcp_v4_conn_request") {
+    tcphdr = __get_skb_tcphdr($skb);
+    dport = __tcp_skb_dport(tcphdr);
+    if (dport != {{ options.port }}) next;
+
+    // First time: compute maximum queue lengths
+    if (max_syn_qlen == 0) {
+      max_qlen_log = @cast($sk,
+         "struct inet_connection_sock")->icsk_accept_queue->listen_opt->max_qlen_log;
+      max_syn_qlen = (1 << max_qlen_log);
+    }
+    if (max_acc_qlen == 0) {
+      max_acc_qlen = $sk->sk_max_ack_backlog;
+    }
+
+    syn_qlen = @cast($sk, "struct inet_connection_sock")->icsk_accept_queue->listen_opt->qlen;
+    syn_qlen_stats <<< syn_qlen;
+
+    acc_qlen_stats <<< $sk->sk_ack_backlog;
+}
+
+probe timer.ms({{ options.interval }}) {
+    if (max_syn_qlen == 0) {
+      printf("No new connection on port {{ options.port }}, yet.\n");
+      next;
+    }
+    ansi_clear_screen();
+    ansi_set_color2(30, 46);
+    printf(" ♦ Syn queue \n");
+    ansi_reset_color();
+    print(@hist_log(syn_qlen_stats))
+    printf(" — min:%d avg:%d max:%d count:%d\n",
+                     @min(syn_qlen_stats),
+                     @avg(syn_qlen_stats),
+                     @max(syn_qlen_stats),
+                     @count(syn_qlen_stats));
+    printf(" — allowed maximum: %d\n\n", max_syn_qlen);
+
+    ansi_set_color2(30, 46);
+    printf(" ♦ Accept queue \n");
+    ansi_reset_color();
+    print(@hist_log(acc_qlen_stats))
+    printf(" — min:%d avg:%d max:%d count:%d\n",
+                     @min(acc_qlen_stats),
+                     @avg(acc_qlen_stats),
+                     @max(acc_qlen_stats),
+                     @count(acc_qlen_stats));
+    printf(" — allowed maximum: %d\n\n", max_acc_qlen);
+}
+""")
+    probe = probe.render(options=options).encode("utf-8")
+    stap.execute(probe, options)
+
+
+stap.run(sys.modules[__name__])

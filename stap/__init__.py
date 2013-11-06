@@ -9,6 +9,10 @@ from stap import h
 
 __all__ = [ "run", "execute", "d", "h" ]
 
+
+def normalize_fn(name):
+    return name.replace("_", "-")
+
 def get_subcommands(module):
     """Extract list of subcommands in the given module."""
     return [obj
@@ -46,7 +50,7 @@ def get_options(module):
 
     subparsers = parser.add_subparsers(help="subcommands", dest="command")
     for fn in get_subcommands(module):
-        subparser = subparsers.add_parser(fn.__name__,
+        subparser = subparsers.add_parser(normalize_fn(fn.__name__),
                                           help=fn.__doc__.split("\n")[0],
                                           description=fn.__doc__,
                                           formatter_class=raw)
@@ -64,7 +68,7 @@ def run(module):
     logger = log.get_logger("stap", options)
     try:
         for fn in get_subcommands(module):
-            if fn.__name__ != options.command:
+            if normalize_fn(fn.__name__) != options.command:
                 continue
             logger.debug("execute %s subcommand" % options.command)
             fn(options)
