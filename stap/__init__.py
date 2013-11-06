@@ -98,5 +98,6 @@ def execute(probe, options):
         st.communicate(input=probe)
     except KeyboardInterrupt:
         st.terminate()
+        st.wait()
         sys.exit(0)
 
