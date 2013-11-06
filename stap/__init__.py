@@ -79,6 +79,8 @@ def execute(probe, options):
         print probe
         return
     cmd = ["stap"]
+    if not options.silent:
+        cmd += ["-v"]
     if options.stapnooverload:
         cmd += ["-DSTP_NO_OVERLOAD"]
     if options.stapargs:
