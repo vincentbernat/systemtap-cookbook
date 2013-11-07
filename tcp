@@ -144,4 +144,38 @@ probe timer.ms({{ options.interval }}) {
     stap.execute(probe, options)
 
 
+@stap.d.enable
+@stap.d.linux("3.11")
+@stap.d.arg("port", metavar="PORT", type=int,
+            help="listening port to be analyzed")
+def accept_queue_overflow(options):
+    """Trace SYN/ACK backlog queue overflows"""
+    probe = jinja2.Template(ur"""
+probe kernel.function("tcp_v4_conn_request") {
+    tcphdr = __get_skb_tcphdr($skb);
+    dport = __tcp_skb_dport(tcphdr);
+    if (dport != {{ options.port }}) next;
+
+    syn_qlen = @cast($sk, "struct inet_connection_sock")->icsk_accept_queue->listen_opt->qlen;
+    max_syn_qlen_log = @cast($sk, "struct inet_connection_sock")->icsk_accept_queue->listen_opt->max_qlen_log;
+    max_syn_qlen = (2 << max_syn_qlen_log);
+
+    if (syn_qlen > max_syn_qlen) {
+            now = tz_ctime(gettimeofday_s());
+            printf("[%s] SYN queue is overflown: %d > %d\n", now, syn_qlen, max_syn_qlen);
+    }
+
+    ack_backlog = $sk->sk_ack_backlog;
+    max_ack_backlog = $sk->sk_max_ack_backlog;
+
+    if (ack_backlog > max_ack_backlog) {
+            now = tz_ctime(gettimeofday_s());
+            printf("[%s] ACK backlog queue is overflown: %d > %d\n", now, ack_backlog, max_ack_backlog);
+    }
+}
+""")
+    probe = probe.render(options=options).encode("utf-8")
+    stap.execute(probe, options)
+
+
 stap.run(sys.modules[__name__])
