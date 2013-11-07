@@ -83,4 +83,63 @@ probe timer.ms({{ options.interval }}) {
     stap.execute(probe, options)
 
 
+@stap.d.enable
+@stap.d.arg("port", metavar="PORT", type=int,
+            help="listening port to be analyzed")
+@stap.d.arg("--interval", default=1000, type=int,
+            help="delay between screen updates in milliseconds")
+def accept_queue_latency(options):
+    """Distribution of accept queue latencies."""
+    probe = jinja2.Template(ur"""
+global begin_times;
+global latency_stats;
+global found;
+
+probe kernel.function("tcp_openreq_init") {
+    tcphdr = __get_skb_tcphdr($skb);
+    dport = __tcp_skb_dport(tcphdr);
+    if (dport != {{ options.port }}) next;
+
+    begin_times[$req] = gettimeofday_us();
+{%- if options.debug %}
+    printf("%s: %p %d\n", ppfunc(), $req, dport);
+{%- endif %}
+}
+
+probe kernel.function("inet_csk_accept"),
+  kernel.function("inet_csk_wait_for_connect").return {
+    req = @cast($sk, "struct inet_connection_sock")->icsk_accept_queue->rskq_accept_head;
+    begin = begin_times[req];
+    if (!begin) next;
+
+    elapsed = gettimeofday_us() - begin;
+{%- if options.debug %}
+    printf("%s: sk=%p, req=%p, latency=%d\n", ppfunc(), $sk, req, elapsed);
+{%- endif %}
+    latency_stats <<< elapsed;
+    delete begin_times[req];
+    found = 1;
+}
+
+probe timer.ms({{ options.interval }}) {
+    if (found == 0) {
+      printf("No new connection on port {{ options.port }}, yet.\n");
+      next;
+    }
+    ansi_clear_screen();
+    ansi_set_color2(30, 46);
+    printf(" ♦ Accept queueing latency distribution \n");
+    ansi_reset_color();
+    print(@hist_log(latency_stats))
+    printf(" — min:%dus avg:%dus max:%dus count:%d\n",
+                     @min(latency_stats),
+                     @avg(latency_stats),
+                     @max(latency_stats),
+                     @count(latency_stats));
+}
+""")
+    probe = probe.render(options=options).encode("utf-8")
+    stap.execute(probe, options)
+
+
 stap.run(sys.modules[__name__])
