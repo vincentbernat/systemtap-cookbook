@@ -1,5 +1,7 @@
 """Useful decorators for stap functions."""
 
+import platform
+import re
 import functools
 import logging
 logger = logging.getLogger(__name__)
@@ -31,3 +33,25 @@ def enable(fn):
     """Enable the function as a valid subcommand."""
     fn.stap_enabled = True
     return fn
+
+def linux(versions):
+    """Emit a warning if running on an untested Linux version."""
+    if not isinstance(versions, (list, tuple)):
+        versions = [ versions ]
+    def w(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            current = platform.release()
+            mo = re.match(r"((?:[0-9]+\.?)+)", current)
+            if mo:
+                current = mo.group(1).split(".")
+            for version in versions:
+                vv = version.split(".")
+                if vv == current[:len(vv)]:
+                    break
+            else:
+                logger.warn("command `%s` has not been tested with Linux %s" % (
+                    fn.__name__, ".".join(current)))
+            return fn(*args, **kwargs)
+        return wrapper
+    return w

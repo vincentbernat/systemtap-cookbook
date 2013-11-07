@@ -17,6 +17,7 @@ import jinja2
 
 
 @stap.d.enable
+@stap.d.linux("3.11")
 @stap.d.arg("port", metavar="PORT", type=int,
             help="listening port to be analyzed")
 @stap.d.arg("--interval", default=1000, type=int,
@@ -84,6 +85,7 @@ probe timer.ms({{ options.interval }}) {
 
 
 @stap.d.enable
+@stap.d.linux("3.11")
 @stap.d.arg("port", metavar="PORT", type=int,
             help="listening port to be analyzed")
 @stap.d.arg("--interval", default=1000, type=int,
