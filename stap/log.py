@@ -1,7 +1,6 @@
 """Logging related stuff"""
 
 import logging
-import time
 
 class ColorizingStreamHandler(logging.StreamHandler):
     """Provide a nicer logging output to error output with colors."""
@@ -37,8 +36,7 @@ class ColorizingStreamHandler(logging.StreamHandler):
         params.append("1m")
         level = "[{}]".format(level)
 
-        return "\n".join(["{} {}: {}".format(
-            time.strftime("%Y-%m-%dT%H:%M:%S"),
+        return "\n".join(["{}: {}".format(
             self.is_tty and params and ''.join((self.csi, ';'.join(params),
                                                 level, self.reset)) or level,
             line) for line in message.split('\n')])
