@@ -17,7 +17,9 @@ import jinja2
 @stap.d.enable
 @stap.d.linux("3.11")
 @stap.d.arg("--limit", "-l", default=20, type=int, metavar="N",
-             help="display N top processes")
+            help="display N top processes")
+@stap.d.arg("--by-command", action="store_true",
+            help="aggregate using command line instead of PID")
 def top(options):
     """iotop-like tool.
 
@@ -29,13 +31,13 @@ def top(options):
 global ioreads, iowrites, breads, bwrites, all;
 
 probe vfs.read.return {
-    breads[pid(),cmdline_str()] += bytes_read;
-    ioreads[pid(),cmdline_str()] += 1;
+    breads[{{pid}},cmdline_str()] += bytes_read;
+    ioreads[{{pid}},cmdline_str()] += 1;
 }
 
 probe vfs.write.return {
-    bwrites[pid(),cmdline_str()] += bytes_written;
-    iowrites[pid(),cmdline_str()] += 1;
+    bwrites[{{pid}},cmdline_str()] += bytes_written;
+    iowrites[{{pid}},cmdline_str()] += 1;
 }
 
 function human_bytes:string(bytes:long) {
@@ -79,14 +81,19 @@ probe timer.s(1) {
        bytes_to_string(tbwrites), human_iops(tiowrites),
        average(tbwrites, tiowrites));
     ansi_set_color2(30, 46);
-    printf("%5s  %10s %10s %8s %10s %10s %8s %-30s\n", "PID",
+    printf("{% if not options.by_command %}%5s {% endif %}%10s %10s %8s %10s %10s %8s %-30s\n",
+{%- if not options.by_command %}
+      "PID",
+{%- endif %}
       "RBYTES/s", "READ/s", "rAVG",
       "WBYTES/s", "WRITE/s", "wAVG", "COMMAND");
     ansi_reset_color();
     foreach ([t,s] in all- limit {{ options.limit }}) {
       cmd = substr(s, 0, 30);
-      printf("%5d  %10s %10s %8s %10s %10s %8s %s\n",
+      printf("{% if not options.by_command %}%5d {% endif %}%10s %10s %8s %10s %10s %8s %s\n",
+{%- if not options.by_command %}
         t,
+{%- endif %}
         human_bytes(breads[t,s]),
         human_iops(ioreads[t,s]),
         average(breads[t,s], ioreads[t,s]),
@@ -102,7 +109,10 @@ probe timer.s(1) {
     delete bwrites;
 }
 """)
-    probe = probe.render(options=options).encode("utf-8")
+    pid = "pid()"
+    if options.by_command:
+        pid = "0"
+    probe = probe.render(options=options, pid=pid).encode("utf-8")
     stap.execute(probe, options)
 
 
