@@ -1,7 +1,9 @@
 import sys
+import os
 import argparse
 import inspect
 import subprocess
+import re
 
 from stap import log
 from stap import d
@@ -58,7 +60,17 @@ def get_options(module):
             for args, kwargs in fn.stap_args:
                 subparser.add_argument(*args, **kwargs)
 
-    return parser.parse_args()
+    options = parser.parse_args()
+    conditions = [ "(1 == 1)" ]
+    if "condition" in options and options.condition:
+        conditions.append("({})".format(options.condition))
+    if "pid" in options and options.pid:
+        conditions.append("(pid() == target())")
+    if "process" in options and options.process:
+        p = os.path.basename(options.process)
+        conditions.append('(execname() == "{}")'.format(p))
+    options.condition = "({})".format(" && ".join(conditions))
+    return options
 
 
 def run(module):
@@ -77,7 +89,21 @@ def run(module):
         sys.exit(1)
 
 
-def execute(probe, options):
+def sofiles(pid):
+    """Retrieve libraries loaded by the process specified by the PID"""
+    args = []
+    with open("/proc/{}/maps".format(pid)) as f:
+        for line in f:
+            mo = re.match(r".*\s+(/\S+\.so)$", line.strip())
+            if mo and mo.group(1) not in args:
+                logger.debug("{} is using {}".format(pid, mo.group(1)))
+                args.append("-d")
+                args.append(mo.group(1))
+    return args
+
+
+def execute(probe, options, *args):
+    """Execute the given probe with :command:`stap`."""
     if options.dump:
         logger.debug("dump probe")
         print probe
@@ -89,6 +115,16 @@ def execute(probe, options):
         cmd += ["-DSTP_NO_OVERLOAD"]
     if options.stapargs:
         cmd += options.stapargs
+    if "pid" in options and options.pid:
+        cmd += ["-x", str(options.pid)]
+        cmd += sofiles(options.pid)
+    if "process" in options and options.process:
+        if  "/" in options.process:
+            cmd += ["-d", options.process, "--ldd"]
+        else:
+            logger.warn("process is not fully qualified, "
+                        "additional symbols may be missing")
+    cmd += args
     cmd += ["-"]
     logger.info("execute probe")
     logger.debug("using the following command line: %s" % " ".join(cmd))

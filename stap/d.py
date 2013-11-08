@@ -29,6 +29,36 @@ def arg(*args, **kwargs):
         return fn
     return w
 
+def arg_pid(fn):
+    """Accept an argument to specify a PID.
+
+    It is expected that the probes will make use of `options.condition`
+    to filter out probes. Moreover, :command:`stap` will be invoked
+    with :option:`-x`.
+
+    """
+    if not hasattr(fn, "stap_args"):
+        fn.stap_args = []
+    fn.stap_args.append((("--pid", "-p"),
+                         dict(default=None, metavar="PID", type=int,
+                              help="limit profiling to process with pid PID")))
+    return fn
+
+def arg_process(fn):
+    """Accept an argument to specify a specific process to watch.
+
+    It is expected that the probes will make use of
+    `options.condition` to filter out probes.
+
+    """
+    if not hasattr(fn, "stap_args"):
+        fn.stap_args = []
+    fn.stap_args.append((("--process", "-P"),
+                         dict(default=None, metavar="NAME",
+                              type=str,
+                              help="limit profiling to the process NAME")))
+    return fn
+
 def enable(fn):
     """Enable the function as a valid subcommand."""
     fn.stap_enabled = True
