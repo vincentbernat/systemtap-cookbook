@@ -20,6 +20,12 @@ import jinja2
             help="display N top processes")
 @stap.d.arg("--by-command", action="store_true",
             help="aggregate using command line instead of PID")
+@stap.d.arg("--sort", "-s",
+            choices=["reads", "writes",
+                     "rbytes", "wbytes",
+                     "tio", "tbytes"],
+            default="tbytes",
+            help="sort results using the specified metric")
 def top(options):
     """iotop-like tool.
 
@@ -65,14 +71,28 @@ function average:string(bytes:long, iops:long) {
 probe timer.s(1) {
     foreach ([t,s] in breads) {
       tbreads += breads[t,s];
+{%- if options.sort in ["rbytes", "tbytes"] %}
       all[t,s] += breads[t,s];
+{%- endif %}
     }
     foreach ([t,s] in bwrites) {
       tbwrites += bwrites[t,s];
+{%- if options.sort in ["wbytes", "tbytes"] %}
       all[t,s] += bwrites[t,s];
+{%- endif %}
     }
-    foreach ([t,s] in ioreads) tioreads += ioreads[t,s];
-    foreach ([t,s] in iowrites) tiowrites += iowrites[t,s];
+    foreach ([t,s] in ioreads) {
+      tioreads += ioreads[t,s];
+{%- if options.sort in ["reads", "tio"] %}
+      all[t,s] += ioreads[t,s];
+{%- endif %}
+    }
+    foreach ([t,s] in iowrites) {
+      tiowrites += iowrites[t,s];
+{%- if options.sort in ["writes", "tio"] %}
+      all[t,s] += iowrites[t,s];
+{%- endif %}
+    }
     ansi_clear_screen();
     printf("Total read:  %10s / %10s (avg req size: %10s) \n",
        bytes_to_string(tbreads), human_iops(tioreads),
