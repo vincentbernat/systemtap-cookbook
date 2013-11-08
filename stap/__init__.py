@@ -104,10 +104,6 @@ def sofiles(pid):
 
 def execute(probe, options, *args):
     """Execute the given probe with :command:`stap`."""
-    if options.dump:
-        logger.debug("dump probe")
-        print probe
-        return
     cmd = ["stap"]
     if not options.silent:
         cmd += ["-v"]
@@ -126,6 +122,13 @@ def execute(probe, options, *args):
                         "additional symbols may be missing")
     cmd += args
     cmd += ["-"]
+
+    if options.dump:
+        logger.info("would run the following probe with `{}`".format(
+            " ".join(cmd)))
+        print probe
+        return
+
     logger.info("execute probe")
     logger.debug("using the following command line: %s" % " ".join(cmd))
     st = subprocess.Popen(cmd,
