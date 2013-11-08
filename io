@@ -55,6 +55,10 @@ function human_iops:string(iops:long) {
     }
     return sprintf("%d%s/s", iops, prefix);
 }
+function average:string(bytes:long, iops:long) {
+    if (iops == 0) return "-";
+    return bytes_to_string(bytes/iops);
+}
 
 probe timer.s(1) {
     foreach ([t,s] in breads) {
@@ -68,19 +72,27 @@ probe timer.s(1) {
     foreach ([t,s] in ioreads) tioreads += ioreads[t,s];
     foreach ([t,s] in iowrites) tiowrites += iowrites[t,s];
     ansi_clear_screen();
-    printf("Total read: %s / %s\n", human_bytes(tbreads), human_iops(tioreads));
-    printf("Total write: %s / %s\n", human_bytes(tbwrites), human_iops(tiowrites));
+    printf("Total read:  %10s / %10s (avg req size: %10s) \n",
+       bytes_to_string(tbreads), human_iops(tioreads),
+       average(tbreads, tioreads));
+    printf("Total write: %10s / %10s (avg req size: %10s) \n",
+       bytes_to_string(tbwrites), human_iops(tiowrites),
+       average(tbwrites, tiowrites));
     ansi_set_color2(30, 46);
-    printf("%5s  %10s %10s %10s %10s  %30s  \n", "PID", "READ", "READ", "WRITE", "WRITE", "COMMAND");
+    printf("%5s  %10s %10s %8s %10s %10s %8s %-30s\n", "PID",
+      "RBYTES/s", "READ/s", "rAVG",
+      "WBYTES/s", "WRITE/s", "wAVG", "COMMAND");
     ansi_reset_color();
     foreach ([t,s] in all- limit {{ options.limit }}) {
       cmd = substr(s, 0, 30);
-      printf("%5d  %10s %10s %10s %10s  %s\n",
+      printf("%5d  %10s %10s %8s %10s %10s %8s %s\n",
         t,
         human_bytes(breads[t,s]),
         human_iops(ioreads[t,s]),
+        average(breads[t,s], ioreads[t,s]),
         human_bytes(bwrites[t,s]),
         human_iops(iowrites[t,s]),
+        average(bwrites[t,s], iowrites[t,s]),
         cmd);
     }
     delete all;
