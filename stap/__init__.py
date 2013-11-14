@@ -41,7 +41,8 @@ def get_options(module):
                    default=False,
                    help="silent output")
 
-    parser.add_argument("--stap-arg", "-a", metavar="ARG", type=str, nargs="+",
+    parser.add_argument("--stap-arg", "-a", metavar="ARG", type=str,
+                        action="append",
                         dest="stapargs",
                         help="pass an extra argument to the stap utility")
     parser.add_argument("--stap-no-overload", action="store_true",
