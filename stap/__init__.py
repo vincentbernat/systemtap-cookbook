@@ -41,6 +41,9 @@ def get_options(module):
                    default=False,
                    help="silent output")
 
+    parser.add_argument("--stap-module", "-m", metavar="MOD", type=str,
+                        action="append", dest="modules",
+                        help="load unwind data for the specified modules as well")
     parser.add_argument("--stap-arg", "-a", metavar="ARG", type=str,
                         action="append",
                         dest="stapargs",
@@ -112,6 +115,10 @@ def execute(probe, options, *args):
         cmd += ["-DSTP_NO_OVERLOAD"]
     if options.stapargs:
         cmd += options.stapargs
+    if options.modules:
+        cmd += ["--ldd"]
+        for m in options.modules:
+            cmd += ["-d", m]
     if "pid" in options and options.pid:
         cmd += ["-x", str(options.pid)]
         cmd += sofiles(options.pid)
