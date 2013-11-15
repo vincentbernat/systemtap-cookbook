@@ -501,77 +501,39 @@ probe timer.ms({{ options.interval }}) {
             help="restrict the profiling to URI prefixed by PREFIX")
 @stap.d.arg("--limit", type=int, default=10, metavar="N",
             help="show the most N frequent backtraces")
-@stap.d.arg("--depth", type=int, default=4, metavar="N",
+@stap.d.arg("--depth", type=int, default=10, metavar="N",
             help="limit the backtraces to N function calls")
 @stap.d.arg("--time", "-t", default=10, metavar="S", type=int,
             help="sample during S seconds")
-@stap.d.arg("--frequency", type=int, default=100,
+@stap.d.arg("--frequency", type=int, default=97,
             help="sample frequency")
 def profile(options):
     """Sample backtraces to find the most used ones.
     """
     probe = jinja2.Template(ur"""
+{{ backtrace.init() }}
 
-global traceacceptable;
-global traceenable;
+global cantrace;
 global traces;
-global trace;
-global skip;
-global length;
-
-function logit() {
-    traceenable[pid()] = 0;
-    traces[trace[pid()]] <<< 1;
-    delete trace[pid()];
-    delete skip[pid()];
-    delete length[pid()];
-}
 
 probe process("{{ options.php }}").provider("php").mark("request__startup") {
     if (user_string_n($arg2, {{ options.uri|length() }}) == "{{ options.uri }}")
-        traceacceptable[pid()] = 1;
+        cantrace[pid()] = 1;
 }
 
 
 probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
-    delete traceacceptable[pid()];
-    if (!traceenable[pid()]) next;
-    logit();
-}
-
-probe process("{{ options.php }}").provider("php").mark("function__entry") {
-    if (traceenable[pid()]) skip[pid()]++;
-}
-
-probe process("{{ options.php }}").provider("php").mark("function__return") {
-    if (!traceenable[pid()]) next;
-    if (skip[pid()] > 0) {
-       skip[pid()]--;
-       next;
-    }
-    try {
-      fn = sprintf(" %s::%s() [in %s:%d]",
-                   user_string($arg4),
-                   user_string($arg1),
-                   user_string($arg2),
-                   $arg3);
-    } catch {
-      fn = "";
-    }
-    if (fn != "") {
-      trace[pid()] = sprintf("%s\n%s", trace[pid()], fn);
-      length[pid()]++;
-      if (length[pid()] >= {{ options.depth }}) logit();
-    }
+    delete cantrace[pid()];
 }
 
 probe timer.us({{ (1000000 / options.frequency)|int() }}) {
-    if (traceacceptable[pid()])
-       traceenable[pid()] = 1;
+    if (!cantrace[pid()]) next;
+    traces[phpstack_n({{ options.depth }})] <<< 1;
 }
 
 probe timer.s({{ options.time }}) {
    foreach (t in traces- limit {{ options.limit }}) {
+        if (t == "") continue;
         printf("%s\n", t);
         ansi_set_color2(30, 46);
         printf(" ♦ Number of occurrences: %-6d  \n", @count(traces[t]));
@@ -580,7 +542,8 @@ probe timer.s({{ options.time }}) {
    exit();
 }
 """)
-    probe = probe.render(options=options).encode("utf-8")
+    probe = probe.render(options=options,
+                         backtrace=stap.h.php.Backtrace(options.php)).encode("utf-8")
     stap.execute(probe, options, "-DMAXSTRINGLEN={}".format(options.depth*100))
 
 

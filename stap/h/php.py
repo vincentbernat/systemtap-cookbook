@@ -27,57 +27,55 @@ class Backtrace(object):
         self.interpreter = interpreter
 
     def init(self):
-        code = jinja2.Template(u"""
-    global __phptraceenable;
-    global __phptraceskip;
+        code = jinja2.Template(ur"""
+function phpstack:string() {
+        max_depth = 16;
+        return phpstack_n(max_depth);
+}
 
-    probe process("{{ php }}").provider("php").mark("request__shutdown") {
-        if (__phptraceenable != pid()) next;
-        printf(" — End of backtrace for %s %s\\n",
-           user_string($arg3), user_string($arg2));
-        __phptraceenable = 0;
-    }
-    probe process("{{ php }}").provider("php").mark("function__entry") {
-        if (__phptraceenable == pid())
-          __phptraceskip++;
-    }
-    probe process("{{ php }}").provider("php").mark("function__return") {
-        if (__phptraceenable != pid()) next;
-        if (__phptraceskip > 0) {
-          __phptraceskip--;
-          next;
+function __php_functionname:string(t:long) {
+        if (@cast(t, "zend_execute_data", "{{ php }}")->function_state->function) {
+          name = @cast(t, "zend_execute_data",
+                        "{{ php }}")->function_state->function->common->function_name;
+          fname = name?user_string(name):"???";
+          if (@cast(t, "zend_execute_data",
+                          "{{ php }}")->function_state->function->common->scope) {
+            try {
+              scope = @cast(t, "zend_execute_data",
+                          "{{ php }}")->function_state->function->common->scope->name;
+              return sprintf("%s::%s", user_string(scope), fname);
+            } catch {}
+          }
+        } else {
+          fname = "(nofunction)";
         }
-        try {
-          fn = sprintf(" %s::%s() [in %s:%d]",
-                       user_string($arg4),
-                       user_string($arg1),
-                       user_string($arg2),
-                       $arg3);
-        } catch {
-          fn = "";
+        return fname;
+}
+
+function __php_functionargs:string(t:long) {
+        nb = user_int(@cast(t, "zend_execute_data",
+                        "{{ php }}")->function_state->arguments);
+        return sprintf("%d", nb);
+}
+
+function __php_function:string(t:long) {
+        name = __php_functionname(t);
+        arguments = __php_functionargs(t);
+        return sprintf("%s(%s)", name, arguments);
+}
+
+function phpstack_n:string(max_depth:long) {
+        t = @var("executor_globals", "{{ php }}")->current_execute_data;
+        while (t && depth < max_depth) {
+          result = sprintf("%s\n%s", result, __php_function(t));
+          depth++;
+          t = @cast(t, "zend_execute_data", "{{ php }}")->prev_execute_data;
         }
-        if (fn != "") {
-          printf("%s\\n", fn);
-        }
-    }
+        return result;
+}
 """)
         return code.render(php=self.interpreter)
 
-    def display(self):
-        """Enable PHP backtrace for current PID.
-
-        The trace is displayed on standard output. It is not possible
-        to display several traces at once, therefore, displaying a
-        trace disable displaying trace for other processes.
-
-        """
-        return r"""
-if (__phptraceenable == 0) {
-  __phptraceenable = pid();
-  __phptraceskip = 0;
-}
-"""
-
-    def busy(self):
-        """Tell if we are busy displaying a backtrace."""
-        return "(__phptraceenable != 0)"
+    def display(self, depth=16):
+        """Display PHP backtrace at th current point."""
+        return "print(phpstack_n({}))".format(depth);
