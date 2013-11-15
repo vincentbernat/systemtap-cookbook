@@ -507,6 +507,8 @@ probe timer.ms({{ options.interval }}) {
             help="sample during S seconds")
 @stap.d.arg("--frequency", type=int, default=97,
             help="sample frequency")
+@stap.d.arg("--c", action="store_true",
+            help="also display C backtrace")
 def profile(options):
     """Sample backtraces to find the most used ones.
     """
@@ -514,7 +516,7 @@ def profile(options):
 {{ backtrace.init() }}
 
 global cantrace;
-global traces;
+global traces%;
 
 probe process("{{ options.php }}").provider("php").mark("request__startup") {
     if (user_string_n($arg2, {{ options.uri|length() }}) == "{{ options.uri }}")
@@ -528,15 +530,23 @@ probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
 
 probe timer.us({{ (1000000 / options.frequency)|int() }}) {
     if (!cantrace[pid()]) next;
-    traces[phpstack_n({{ options.depth }})] <<< 1;
+{%- if options.c %}
+    traces[phpstack_n({{ options.depth }}), sprint_ubacktrace()] <<< 1;
+{%- else %}
+    traces[phpstack_n({{ options.depth }}), 1] <<< 1;
+{%- endif %}
 }
 
 probe timer.s({{ options.time }}) {
-   foreach (t in traces- limit {{ options.limit }}) {
-        if (t == "") continue;
-        printf("%s\n", t);
+   foreach ([php, c] in traces- limit {{ options.limit }}) {
+        printf("--- PHP backtrace ---\n");
+        printf("%s\n", php);
+{%- if options.c %}
+        printf("---- C backtrace ----\n");
+        printf("%s\n", c);
+{%- endif %}
         ansi_set_color2(30, 46);
-        printf(" ♦ Number of occurrences: %-6d  \n", @count(traces[t]));
+        printf(" ♦ Number of occurrences: %-6d  \n", @count(traces[php, c]));
         ansi_reset_color();
    }
    exit();

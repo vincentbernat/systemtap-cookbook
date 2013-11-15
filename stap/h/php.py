@@ -34,21 +34,18 @@ function phpstack:string() {
 }
 
 function __php_functionname:string(t:long) {
-        if (@cast(t, "zend_execute_data", "{{ php }}")->function_state->function) {
+        try {
           name = @cast(t, "zend_execute_data",
                         "{{ php }}")->function_state->function->common->function_name;
-          fname = name?user_string(name):"???";
-          if (@cast(t, "zend_execute_data",
-                          "{{ php }}")->function_state->function->common->scope) {
-            try {
-              scope = @cast(t, "zend_execute_data",
-                          "{{ php }}")->function_state->function->common->scope->name;
-              return sprintf("%s::%s", user_string(scope), fname);
-            } catch {}
-          }
-        } else {
-          fname = "(nofunction)";
+          fname = user_string(name);
+        } catch {
+          fname = "???";
         }
+        try {
+          scope = @cast(t, "zend_execute_data",
+                           "{{ php }}")->function_state->function->common->scope->name;
+          return sprintf("%s::%s", user_string(scope), fname);
+        } catch {}
         return fname;
 }
 
