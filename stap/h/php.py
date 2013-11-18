@@ -57,8 +57,7 @@ function __php_functionargs:string(t:long) {
 
 function __php_function:string(t:long) {
         name = __php_functionname(t);
-        arguments = __php_functionargs(t);
-        return sprintf("%s(%s)", name, arguments);
+        return sprintf("%s()", name);
 }
 
 function phpstack_n:string(max_depth:long) {
