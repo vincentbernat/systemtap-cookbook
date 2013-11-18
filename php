@@ -410,8 +410,8 @@ probe timer.ms({{ options.interval }}) {
             help="restrict the profiling to URI prefixed by PREFIX")
 @stap.d.arg("--interval", default=5000, type=int,
             help="delay between screen updates in milliseconds")
-@stap.d.arg("--step", type=int, default=1, metavar="MS",
-            help="each bucket represents MS milliseconds")
+@stap.d.arg("--step", type=int, default=1, metavar="N",
+            help="each bucket represents N calls")
 @stap.d.arg("--disable-hist", dest="hist",
             action="store_false",
             help="disable display of distribution histogram")
