@@ -2,6 +2,7 @@
 
 """PHP helpers"""
 
+import ctypes
 import subprocess
 import jinja2
 
@@ -29,54 +30,111 @@ class Backtrace(object):
     def init(self):
         code = jinja2.Template(ur"""
 function phpstack:string() {
-        max_depth = 16;
-        return phpstack_n(max_depth);
+        __max_depth = 16;
+        return phpstack_n(__max_depth);
+}
+
+function phpstack_full:string() {
+        __max_depth = 16;
+        return phpstack_full_n(__max_depth);
 }
 
 function __php_functionname:string(t:long) {
         if (@cast(t, "zend_execute_data",
                      "{{ php }}")->function_state->function) {
-          name = user_string_quoted(@cast(t, "zend_execute_data",
-                        "{{ php }}")->function_state->function->common->function_name);
+          __name = user_string2(@cast(t, "zend_execute_data",
+                        "{{ php }}")->function_state->function->common->function_name, "(anonymous)");
           if (@cast(t, "zend_execute_data",
                        "{{ php }}")->function_state->function->common->scope) {
             return sprintf("%s::%s",
-                           user_string_quoted(@cast(t, "zend_execute_data",
-                                   "{{ php }}")->function_state->function->common->scope->name),
-                           name);
+                           user_string2(@cast(t, "zend_execute_data",
+                                   "{{ php }}")->function_state->function->common->scope->name, "(unknown)"),
+                           __name);
           }
-          return name;
+          return __name;
         }
         return "???";
 }
 
-function __php_functionargs:string(t:long) {
-        nb = user_int(@cast(t, "zend_execute_data",
-                        "{{ php }}")->function_state->arguments);
-        return sprintf("%d", nb);
-}
-
-function __php_function:string(t:long) {
-        name = __php_functionname(t);
-        return sprintf("%s()", name);
-}
-
-function phpstack_n:string(max_depth:long) {
-        try {
-          t = @var("executor_globals", "{{ php }}")->current_execute_data;
-          while (t && depth < max_depth) {
-            result = sprintf("%s\n%s", result, __php_function(t));
-            depth++;
-            t = @cast(t, "zend_execute_data", "{{ php }}")->prev_execute_data;
+function __php_decode:string(z:long) {
+        __type = @cast(z, "zval", "{{ php }}")->type;
+        if (__type == 0) {
+          __arg = "NULL";
+        } else if (__type == 1) {
+          __arg = sprintf("%d", user_int(@cast(z, "zval", "{{ php }}")->value->lval));
+        } else if (__type == 2) {
+          __arg = "<float>";
+        } else if (__type == 3) {
+          if (user_int(@cast(z, "zval", "{{ php }}")->value->lval)) {
+            __arg = "true";
+          } else {
+            __arg = "false";
           }
-          if (result == "") return "(empty)";
-          return result;
+        } else if (__type == 4) {
+          __arg = sprintf("<array(%d)>",
+                          @cast(z, "zval", "{{ php }}")->value->ht->nNumOfElements);
+        } else if (__type == 5) {
+          __arg = sprintf("<object[%p]>", z);
+        } else if (__type == 6) {
+          __arg = user_string_n_quoted(@cast(z, "zval", "{{ php }}")->value->str->val,
+                                       @cast(z, "zval", "{{ php }}")->value->str->len);
+        } else {
+          __arg = sprintf("<unknown(%d)>", __type);
+        }
+        return __arg;
+}
+function __php_decode_safe:string(z:long) {
+        try {
+          return __php_decode(z);
+        } catch {
+          return "<unavailable>";
+        }
+}
+
+function __php_functionargs:string(t:long) {
+        __void = {{ pointer }};
+        __nb = user_int(@cast(t, "zend_execute_data",
+                        "{{ php }}")->function_state->arguments);
+        while (__nb > 0) {
+          __zvalue = @cast(t, "zend_execute_data",
+                            "{{ php }}")->function_state->arguments;
+          __arg = __php_decode_safe(&@cast(user_long(__zvalue-__nb*__void), "zval", "{{ php }}"));
+          __result = sprintf("%s%s%s", __result, (__result != "")?",":"", __arg);
+          __nb--;
+        }
+        return __result;
+}
+
+function __php_function:string(t:long, full:long) {
+        __name = __php_functionname(t);
+        if (full) __args = __php_functionargs(t);
+        return sprintf("%s(%s)", __name, __args);
+}
+
+function __phpstack_n:string(max_depth:long, full:long) {
+        try {
+          __t = @var("executor_globals", "{{ php }}")->current_execute_data;
+          while (__t && __depth < max_depth) {
+            __result = sprintf("%s\n%s", __result, __php_function(__t, full));
+            __depth++;
+            __t = @cast(__t, "zend_execute_data", "{{ php }}")->prev_execute_data;
+          }
+          if (__result == "") return "(empty)";
+          return __result;
         } catch {
           return "(unavailable)";
         }
 }
+
+function phpstack_full_n:string(max_depth:long) {
+        return __phpstack_n(max_depth, 1);
+}
+function phpstack_n:string(max_depth:long) {
+        return __phpstack_n(max_depth, 0);
+}
 """)
-        return code.render(php=self.interpreter)
+        return code.render(php=self.interpreter,
+                           pointer=ctypes.sizeof(ctypes.c_void_p))
 
     def display(self, depth=16):
         """Display PHP backtrace at th current point."""
