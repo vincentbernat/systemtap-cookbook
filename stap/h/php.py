@@ -105,10 +105,19 @@ function __php_functionargs:string(t:long) {
         return __result;
 }
 
+function __php_location:string(t:long) {
+        if (!@cast(t, "zend_execute_data", "{{ php }}")->op_array)
+          return "(???)";
+        return sprintf("%s:%d",
+           user_string2(@cast(t, "zend_execute_data", "{{ php }}")->op_array->filename, "???"),
+           @cast(t, "zend_execute_data", "{{ php }}")->opline->lineno);
+}
+
 function __php_function:string(t:long, full:long) {
         __name = __php_functionname(t);
         if (full) __args = __php_functionargs(t);
-        return sprintf("%s(%s)", __name, __args);
+        __location = __php_location(t);
+        return sprintf("%s(%s) %s", __name, __args, __location);
 }
 
 function __phpstack_n:string(max_depth:long, full:long) {

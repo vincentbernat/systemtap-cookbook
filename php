@@ -554,7 +554,7 @@ probe timer.s({{ options.time }}) {
 """)
     probe = probe.render(options=options,
                          backtrace=stap.h.php.Backtrace(options.php)).encode("utf-8")
-    stap.execute(probe, options, "-DMAXSTRINGLEN={}".format(options.depth*100))
+    stap.execute(probe, options, "-DMAXSTRINGLEN={}".format(options.depth*200))
 
 
 stap.run(sys.modules[__name__])
