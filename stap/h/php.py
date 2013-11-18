@@ -61,11 +61,11 @@ function __php_decode:string(z:long) {
         if (__type == 0) {
           __arg = "NULL";
         } else if (__type == 1) {
-          __arg = sprintf("%d", user_int(@cast(z, "zval", "{{ php }}")->value->lval));
+          __arg = sprintf("%d", @cast(z, "zval", "{{ php }}")->value->lval);
         } else if (__type == 2) {
           __arg = "<float>";
         } else if (__type == 3) {
-          if (user_int(@cast(z, "zval", "{{ php }}")->value->lval)) {
+          if (@cast(z, "zval", "{{ php }}")->value->lval) {
             __arg = "true";
           } else {
             __arg = "false";
