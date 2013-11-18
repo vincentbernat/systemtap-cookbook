@@ -34,19 +34,20 @@ function phpstack:string() {
 }
 
 function __php_functionname:string(t:long) {
-        try {
-          name = @cast(t, "zend_execute_data",
-                        "{{ php }}")->function_state->function->common->function_name;
-          fname = user_string(name);
-        } catch {
-          fname = "???";
+        if (@cast(t, "zend_execute_data",
+                     "{{ php }}")->function_state->function) {
+          name = user_string_quoted(@cast(t, "zend_execute_data",
+                        "{{ php }}")->function_state->function->common->function_name);
+          if (@cast(t, "zend_execute_data",
+                       "{{ php }}")->function_state->function->common->scope) {
+            return sprintf("%s::%s",
+                           user_string_quoted(@cast(t, "zend_execute_data",
+                                   "{{ php }}")->function_state->function->common->scope->name),
+                           name);
+          }
+          return name;
         }
-        try {
-          scope = @cast(t, "zend_execute_data",
-                           "{{ php }}")->function_state->function->common->scope->name;
-          return sprintf("%s::%s", user_string(scope), fname);
-        } catch {}
-        return fname;
+        return "???";
 }
 
 function __php_functionargs:string(t:long) {
@@ -61,13 +62,18 @@ function __php_function:string(t:long) {
 }
 
 function phpstack_n:string(max_depth:long) {
-        t = @var("executor_globals", "{{ php }}")->current_execute_data;
-        while (t && depth < max_depth) {
-          result = sprintf("%s\n%s", result, __php_function(t));
-          depth++;
-          t = @cast(t, "zend_execute_data", "{{ php }}")->prev_execute_data;
+        try {
+          t = @var("executor_globals", "{{ php }}")->current_execute_data;
+          while (t && depth < max_depth) {
+            result = sprintf("%s\n%s", result, __php_function(t));
+            depth++;
+            t = @cast(t, "zend_execute_data", "{{ php }}")->prev_execute_data;
+          }
+          if (result == "") return "(empty)";
+          return result;
+        } catch {
+          return "(unavailable)";
         }
-        return result;
 }
 """)
         return code.render(php=self.interpreter)
