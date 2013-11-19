@@ -288,6 +288,67 @@ probe timer.ms({{ options.interval }}) {
 
 
 @stap.d.enable
+@stap.d.warn("buggy")
+@stap.d.arg("--php", type=str, default="/usr/lib/apache2/modules/libphp5.so",
+            help="path to PHP process or module")
+@stap.d.arg("--uri", type=str, default="/", metavar="PREFIX",
+            help="restrict the profiling to URI prefixed by PREFIX")
+@stap.d.arg("--interval", default=1000, type=int,
+            help="delay between screen updates in milliseconds")
+@stap.d.arg("--log", action="store_true",
+            help="display a logarithmic histogram")
+@stap.d.arg("--step", type=int, default=50000, metavar="BYTES",
+            help="each bucket represents BYTES bytes")
+@stap.d.arg("--big", action="store_true",
+            help="log bigger memory users")
+def peak(options):
+    """Display memory peak usage for each requests.
+
+    This examines PHP heap. See: https://wiki.php.net/internals/zend_mm.
+
+    """
+    probe = jinja2.Template(ur"""
+global mem;
+{%- if options.big %}
+global big;
+{%- endif %}
+
+probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
+    if (user_string_n($arg2, {{ options.uri|length() }}) != "{{ options.uri }}") next;
+    peak = @var("alloc_globals", "{{ php }}")->mm_heap->real_peak;
+    mem <<< peak;
+{%- if options.big %}
+    big[peak] = user_string($arg2);
+{%- endif %}
+}
+
+probe timer.ms({{ options.interval }}) {
+    ansi_clear_screen();
+{%- if options.log %}
+    print(@hist_log(mem));
+{%- else %}
+    print(@hist_linear(mem, 0, {{ options.step * 20 }}, {{ options.step }}));
+{%- endif %}
+    printf(" — URI prefix: %s\n", "{{ options.uri }}");
+    printf(" — min:%s avg:%s max:%s count:%d\n",
+                     bytes_to_string(@min(mem)),
+                     bytes_to_string(@avg(mem)),
+                     bytes_to_string(@max(mem)),
+                     @count(mem));
+{% if options.big %}
+    printf(" — biggest users:\n");
+    foreach (t- in big limit 10) {
+      printf("   %10s: %s\n", bytes_to_string(t), big[t]);
+    }
+    delete big;
+{% endif %}
+}
+""")
+    probe = probe.render(options=options).encode("utf-8")
+    stap.execute(probe, options)
+
+
+@stap.d.enable
 @stap.d.arg("--php", type=str, default="/usr/lib/apache2/modules/libphp5.so",
             help="path to PHP process or module")
 @stap.d.arg("--uri", type=str, default="/", metavar="PREFIX",
@@ -412,6 +473,8 @@ probe timer.ms({{ options.interval }}) {
             help="delay between screen updates in milliseconds")
 @stap.d.arg("--step", type=int, default=1, metavar="N",
             help="each bucket represents N calls")
+@stap.d.arg("--buckets", type=int, default=20, metavar="N",
+            help="how many buckets to display")
 @stap.d.arg("--disable-hist", dest="hist",
             action="store_false",
             help="disable display of distribution histogram")
@@ -481,7 +544,7 @@ probe timer.ms({{ options.interval }}) {
       printf(" — Function %-30s: \n", fn);
       ansi_reset_color();
 {%- if options.hist %}
-      print(@hist_linear(acountfn[fn], 0, {{ options.step * 20 }}, {{ options.step }}));
+      print(@hist_linear(acountfn[fn], 0, {{ options.step * options.buckets }}, {{ options.step }}));
 {%- endif %}
       printf(" min:%d avg:%d max:%d count:%d\n\n",
                      @min(acountfn[fn]), @avg(acountfn[fn]),
