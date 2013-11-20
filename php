@@ -288,7 +288,6 @@ probe timer.ms({{ options.interval }}) {
 
 
 @stap.d.enable
-@stap.d.warn("buggy")
 @stap.d.arg("--php", type=str, default="/usr/lib/apache2/modules/libphp5.so",
             help="path to PHP process or module")
 @stap.d.arg("--uri", type=str, default="/", metavar="PREFIX",
@@ -297,7 +296,7 @@ probe timer.ms({{ options.interval }}) {
             help="delay between screen updates in milliseconds")
 @stap.d.arg("--log", action="store_true",
             help="display a logarithmic histogram")
-@stap.d.arg("--step", type=int, default=50000, metavar="BYTES",
+@stap.d.arg("--step", type=int, default=2000000, metavar="BYTES",
             help="each bucket represents BYTES bytes")
 @stap.d.arg("--big", action="store_true",
             help="log bigger memory users")
@@ -310,15 +309,17 @@ def peak(options):
     probe = jinja2.Template(ur"""
 global mem;
 {%- if options.big %}
-global big;
+global big%;
 {%- endif %}
 
-probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
-    if (user_string_n($arg2, {{ options.uri|length() }}) != "{{ options.uri }}") next;
+{#- We don't use request__shutdown probe: it is too late #}
+probe process("{{ options.php }}").function("php_request_shutdown") {
+    uri = user_string2(@var("sapi_globals", "{{ options.php }}")->request_info->request_uri, "(unknown)");
+    if (substr(uri, 0, {{ options.uri|length() }}) != "{{ options.uri }}") next;
     peak = @var("alloc_globals", "{{ php }}")->mm_heap->real_peak;
     mem <<< peak;
 {%- if options.big %}
-    big[peak] = user_string($arg2);
+    big[peak] = uri;
 {%- endif %}
 }
 
@@ -340,7 +341,6 @@ probe timer.ms({{ options.interval }}) {
     foreach (t- in big limit 10) {
       printf("   %10s: %s\n", bytes_to_string(t), big[t]);
     }
-    delete big;
 {% endif %}
 }
 """)
