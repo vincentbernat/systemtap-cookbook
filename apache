@@ -1,0 +1,75 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""PHP related tools
+============================
+
+This script will handle various instrumentation related to PHP interpreter.
+
+"""
+
+import sys
+import os
+import stap
+import jinja2
+
+
+@stap.d.enable
+@stap.d.arg("--apr", type=str, default="/usr/lib/libapr-1.so.0",
+            help="path to libapr-1 library")
+@stap.d.arg("--interval", default=1000, type=int, metavar="MS",
+            help="delay between screen updates in milliseconds")
+@stap.d.arg("--time", default=0, type=int, metavar="S",
+            help="run at most S seconds")
+@stap.d.arg("--big", type=int, default=0, metavar="N",
+            help="display the N biggest cookies")
+@stap.d.arg("--max", type=int, default=(1 << 14), metavar="M",
+            help="maximum cookie size")
+def cookies(options):
+    """Show distribution of cookie sizes."""
+    probe = jinja2.Template(ur"""
+global sizes;
+{%- if options.big %}
+global biggest%;
+{%- endif %}
+
+probe process("{{ options.apr }}").function("apr_table_addn") {
+    if (user_string2($key, "") == "Cookie") {
+      size = strlen(user_string2($val, ""));
+      sizes <<< size;
+{%- if options.big %}
+      biggest[size] = user_string_n2($val, 80, "");
+{%- endif %}
+    }
+}
+
+probe timer.ms({{ options.interval }}) {
+    ansi_clear_screen();
+    print(@hist_log(sizes));
+    printf(" — min:%s avg:%s max:%s count:%d sum:%s\n\n",
+                     bytes_to_string(@min(sizes)),
+                     bytes_to_string(@avg(sizes)),
+                     bytes_to_string(@max(sizes)),
+                     @count(sizes),
+                     bytes_to_string(@sum(sizes)));
+{%- if options.big %}
+    foreach (s- in biggest limit {{ options.big }}) {
+      printf("%10s: %s%s\n", bytes_to_string(s),
+             substr(biggest[s], 0, 60), (strlen(biggest[s])>60)?"…":"");
+    }
+{%- endif %}
+}
+
+{%- if options.time %}
+probe timer.s({{ options.time }}) {
+   printf("Exit after {{ options.time }} seconds\n");
+   exit();
+}
+{%- endif %}
+""")
+    probe = probe.render(options=options).encode("utf-8")
+    stap.execute(probe, options,
+                 "-DMAXSTRINGLEN={}".format(options.max))
+
+
+stap.run(sys.modules[__name__])
