@@ -347,6 +347,66 @@ probe timer.ms({{ options.interval }}) {
     probe = probe.render(options=options).encode("utf-8")
     stap.execute(probe, options)
 
+@stap.d.enable
+@stap.d.warn("buggy")
+@stap.d.warn("untested")
+@stap.d.arg("--php", type=str, default="/usr/lib/apache2/modules/libphp5.so",
+            help="path to PHP process or module")
+@stap.d.arg("--uri", type=str, default="", metavar="PREFIX",
+            help="restrict the profiling to URI prefixed by PREFIX")
+@stap.d.arg("--time", type=int, default=10, metavar="S",
+            help="how much time we should run")
+@stap.d.arg("--depth", type=int, default=1, metavar="D",
+            help="PHP backtrace depth to consider")
+def malloc(options):
+    """Display most frequent memory allocation backtraces.
+
+    """
+    probe = jinja2.Template(ur"""
+{{ backtrace.init() }}
+
+global allocs%;
+
+{%- if options.uri %}
+global enabled;
+
+probe process("{{ options.php }}").provider("php").mark("request__startup") {
+    if (user_string_n($arg2, {{ options.uri|length() }}) == "{{ options.uri }}")
+      enabled[pid()] = 1;
+}
+
+probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
+    if (user_string_n($arg2, {{ options.uri|length() }}) == "{{ options.uri }}")
+      delete enabled[pid()];
+}
+{%- endif %}
+
+probe process("{{ options.php }}").function("_zend_mm_realloc_int").return,
+      process("{{ options.php }}").function("_zend_mm_alloc_int").return {
+{%- if options.uri %}
+    if (!enabled[pid()]) next;
+{%- endif %}
+    if ($return != 0)
+      allocs[phpstack_n({{ options.depth }})] <<< $size;
+}
+
+probe timer.s({{ options.time }}) {
+    foreach (stack in allocs- limit 10) {
+      ansi_set_color2(30, 46);
+      printf(" Allocated %s (%d times): \n",
+             bytes_to_string(@sum(allocs[stack])),
+             @count(allocs[stack]));
+      ansi_reset_color();
+      printf("%s\n\n", stack);
+    }
+    exit();
+}
+
+""")
+    probe = probe.render(options=options,
+                         backtrace=stap.h.php.Backtrace(options.php)).encode("utf-8")
+    stap.execute(probe, options)
+
 
 @stap.d.enable
 @stap.d.arg("--php", type=str, default="/usr/lib/apache2/modules/libphp5.so",
