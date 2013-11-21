@@ -296,6 +296,8 @@ probe timer.ms({{ options.interval }}) {
             help="path to PHP process or module")
 @stap.d.arg("--uri", type=str, default="/", metavar="PREFIX",
             help="restrict the profiling to URI prefixed by PREFIX")
+@stap.d.arg("--filter-uri", type=str, action="append", dest="filtered",
+            help="don't log the given URI", metavar="URI")
 @stap.d.arg("--interval", default=1000, type=int,
             help="delay between screen updates in milliseconds")
 @stap.d.arg("--log", action="store_true",
@@ -320,6 +322,9 @@ global big%;
 probe process("{{ options.php }}").function("php_request_shutdown") {
     uri = user_string2(@var("sapi_globals", "{{ options.php }}")->request_info->request_uri, "(unknown)");
     if (substr(uri, 0, {{ options.uri|length() }}) != "{{ options.uri }}") next;
+{% for uri in options.filtered %}
+    if (uri == "{{ uri }}") next;
+{% endfor %}
     peak = @var("alloc_globals", "{{ php }}")->mm_heap->real_peak;
     mem <<< peak;
 {%- if options.big %}
