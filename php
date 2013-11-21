@@ -103,6 +103,10 @@ probe process("{{ options.php }}").provider("php").mark("request__shutdown") {
 
 probe timer.ms({{ options.interval }}) {
     ansi_clear_screen();
+    if (@count(intervals) == 0) {
+      printf("No data yet...\n");
+      next;
+    }
 {%- if options.log %}
     print(@hist_log(intervals));
 {%- else %}
