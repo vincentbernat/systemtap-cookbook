@@ -178,4 +178,67 @@ probe kernel.function("tcp_v4_conn_request") {
     stap.execute(probe, options)
 
 
+@stap.d.enable
+@stap.d.linux("4.0.0")
+@stap.d.arg("--sport", metavar="SPORT", type=int,
+            default=0,
+            help="filter source port")
+@stap.d.arg("--dport", metavar="DPORT", type=int,
+            default=0,
+            help="filter destination port")
+@stap.d.arg("--interval", metavar="MS", default=1000, type=int,
+            help="delay between screen updates in milliseconds")
+@stap.d.arg("--step", metavar="SIZE", type=int,
+            default=200,
+            help="each bucket represent SIZE kbytes")
+def receive_window_size(options):
+    """Display receive window size advertised for the specified connection"""
+    # We could watch for tcp_select_window return value but this
+    # function is inlined. We prefer tcp_option_write which is
+    # happening a bit later.
+    probe = jinja2.Template(ur"""
+global window_sizes;
+global found;
+
+probe kernel.function("tcp_options_write").return {
+    tcphdrptr = $ptr - &@cast(0, "tcphdr")[1];
+    sport = ntohs(@cast(tcphdrptr, "tcphdr")->source);
+{%- if options.sport != 0 %}
+    if ({{options.sport}} != sport) next;
+{%- endif %}
+    dport = ntohs(@cast(tcphdrptr, "tcphdr")->dest);
+{%- if options.dport != 0 %}
+    if ({{options.dport}} != dport) next;
+{%- endif %}
+    scaled_window = ntohs(@cast(tcphdrptr, "tcphdr")->window);
+    scale_factor = $tp->rx_opt->rcv_wscale
+    window = scaled_window << scale_factor;
+    window_sizes <<< window/1024;
+    found = 1;
+{%- if options.debug %}
+    printf("[%d -> %d]: window size=%d\n", sport, dport, window);
+{%- endif %}
+}
+
+probe timer.ms({{ options.interval }}) {
+    if (found == 0) {
+      printf("No window sizes captured, yet.\n");
+      next;
+    }
+    ansi_clear_screen();
+    ansi_set_color2(30, 46);
+    printf(" ♦ Window size distribution \n");
+    ansi_reset_color();
+    print(@hist_linear(window_sizes, 0, {{ options.step * 20 }}, {{ options.step }}))
+    printf(" — min:%dkb avg:%dkb max:%dkb count:%d\n",
+                     @min(window_sizes),
+                     @avg(window_sizes),
+                     @max(window_sizes),
+                     @count(window_sizes));
+}
+""")
+    probe = probe.render(options=options).encode("utf-8")
+    stap.execute(probe, options)
+
+
 stap.run(sys.modules[__name__])
