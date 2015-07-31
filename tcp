@@ -250,11 +250,21 @@ probe timer.ms({{ options.interval }}) {
 @stap.d.arg("--dport", metavar="DPORT", type=int,
             default=0,
             help="filter destination port")
+@stap.d.arg("--interval", metavar="MS", default=100, type=int,
+            help="sample rate for a given socket")
 def sockstat(options):
     """Display various socket statistics, a bit like `ss'. """
     probe = jinja2.Template(ur"""
+global last;
+
 # Plug to tcp_options_write just to be able to also get receive window.
 probe kernel.function("tcp_options_write") {
+    # Check if we need to retrieve information
+    now = gettimeofday_ms();
+    prev = last[$tp];
+    if (now - prev <= {{ options.interval }}) next;
+    last[$tp] = now;
+
     # Retrieve source and destination port and do filtering
     tcphdr = $ptr - &@cast(0, "tcphdr")[1];
     sport = __tcp_skb_sport(tcphdr);
@@ -276,7 +286,7 @@ probe kernel.function("tcp_options_write") {
     window = scaled_window << scale_factor;
 
     # Print all available information
-    printf("ts:%lu,sk:%lu", gettimeofday_us(), $tp);
+    printf("ts:%lu,sk:%lu", now, $tp);
     printf(",func:%s", ppfunc());
     printf(",state:%s,sport:%d,dport:%d", tcp_sockstate_str(state), sport, dport);
     # Receive and send queues
