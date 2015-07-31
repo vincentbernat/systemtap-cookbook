@@ -200,7 +200,7 @@ def receive_window_size(options):
 global window_sizes;
 global found;
 
-probe kernel.function("tcp_options_write").return {
+probe kernel.function("tcp_options_write") {
     tcphdr = $ptr - &@cast(0, "tcphdr")[1];
     sport = __tcp_skb_sport(tcphdr);
 {%- if options.sport != 0 %}
@@ -240,5 +240,65 @@ probe timer.ms({{ options.interval }}) {
     probe = probe.render(options=options).encode("utf-8")
     stap.execute(probe, options)
 
+
+
+@stap.d.enable
+@stap.d.linux("4.0.0")
+@stap.d.arg("--sport", metavar="SPORT", type=int,
+            default=0,
+            help="filter source port")
+@stap.d.arg("--dport", metavar="DPORT", type=int,
+            default=0,
+            help="filter destination port")
+def sockstat(options):
+    """Display various socket statistics, a bit like `ss'. """
+    probe = jinja2.Template(ur"""
+# Plug to tcp_options_write just to be able to also get receive window.
+probe kernel.function("tcp_options_write") {
+    # Retrieve source and destination port and do filtering
+    tcphdr = $ptr - &@cast(0, "tcphdr")[1];
+    sport = __tcp_skb_sport(tcphdr);
+    dport = __tcp_skb_dport(tcphdr);
+{%- if options.dport != 0 %}
+    if ({{options.dport}} != dport) next;
+{%- endif %}
+{%- if options.sport != 0 %}
+    if ({{options.sport}} != sport) next;
+{%- endif %}
+
+    # Get state
+    state = tcp_ts_get_info_state($tp);
+
+    # Advertised receive window
+    tcphdr = $ptr - &@cast(0, "tcphdr")[1];
+    scaled_window = ntohs(@cast(tcphdr, "tcphdr")->window);
+    scale_factor = $tp->rx_opt->rcv_wscale
+    window = scaled_window << scale_factor;
+
+    # Print all available information
+    printf("ts:%lu,sk:%lu", gettimeofday_us(), $tp);
+    printf(",func:%s", ppfunc());
+    printf(",state:%s,sport:%d,dport:%d", tcp_sockstate_str(state), sport, dport);
+    # Receive and send queues
+    printf(",rq:%lu,wq:%lu", $tp->rcv_nxt - $tp->copied_seq, $tp->write_seq - $tp->snd_una);
+    # Backlog for LISTEN sockets
+    printf(",ack_bl:%u,ack_max_bl:%u", @cast($tp, "sock")->sk_ack_backlog, @cast($tp, "sock")->sk_max_ack_backlog);
+    # Advertised window
+    printf(",advwin:%lu", window);
+    # skmem stuff
+    printf(",skmem_r:%lu,skmem_rb:%lu,skmem_t:%lu,skmem_tb:%lu,skmem_f:%lu,skmem_w:%lu,skmem_o:%lu,skmem_bl:%lu",
+           atomic_read(&@cast($tp, "sock")->sk_backlog->rmem_alloc),
+           @cast($tp, "sock")->sk_rcvbuf,
+           atomic_read(&@cast($tp, "sock")->sk_wmem_alloc),
+           @cast($tp, "sock")->sk_sndbuf,
+           @cast($tp, "sock")->sk_forward_alloc, @cast($tp, "sock")->sk_wmem_queued,
+           atomic_read(&@cast($tp, "sock")->sk_omem_alloc),
+           @cast($tp, "sock")->sk_backlog->len);
+
+    printf("\n");
+}
+""")
+    probe = probe.render(options=options).encode("utf-8")
+    stap.execute(probe, options)
 
 stap.run(sys.modules[__name__])
