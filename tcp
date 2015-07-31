@@ -252,6 +252,9 @@ probe timer.ms({{ options.interval }}) {
             help="filter destination port")
 @stap.d.arg("--interval", metavar="MS", default=100, type=int,
             help="sample rate for a given socket")
+@stap.d.arg("--bandwidth", default=False,
+            action="store_true",
+            help="display estimated bandwidth")
 @stap.d.arg("--extensive", default=False,
             action="store_true",
             help="display more extensive information")
@@ -259,6 +262,10 @@ def sockstat(options):
     """Display various socket statistics, a bit like `ss'. """
     probe = jinja2.Template(ur"""
 global last;
+{%- if options.bandwidth %}
+global snd_una;
+global rcv_nxt;
+{%- endif %}
 
 # Plug to tcp_options_write just to be able to also get receive window.
 probe kernel.function("tcp_options_write") {
@@ -339,6 +346,17 @@ probe kernel.function("tcp_options_write") {
 {%- if options.extensive %}
     # Backlog for LISTEN sockets
     printf(",ack_bl:%u,ack_max_bl:%u", @cast($tp, "sock")->sk_ack_backlog, @cast($tp, "sock")->sk_max_ack_backlog);
+{%- endif %}
+
+{%- if options.bandwidth %}
+    last_snd_una = snd_una[$tp];
+    last_rcv_nxt = rcv_nxt[$tp];
+    snd_una[$tp] = $tp->snd_una;
+    rcv_nxt[$tp] = $tp->rcv_nxt;
+    if (last_snd_una != 0 && last_snd_una <= $tp->snd_una)
+        printf(",snd_bw:%lu", ($tp->snd_una - last_snd_una)*1000/(now - prev));
+    if (last_rcv_nxt != 0 && last_rcv_nxt <= $tp->rcv_nxt)
+        printf(",rcv_bw:%lu", ($tp->rcv_nxt - last_rcv_nxt)*1000/(now - prev));
 {%- endif %}
 
     printf("\n");
