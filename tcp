@@ -201,16 +201,16 @@ global window_sizes;
 global found;
 
 probe kernel.function("tcp_options_write").return {
-    tcphdrptr = $ptr - &@cast(0, "tcphdr")[1];
-    sport = ntohs(@cast(tcphdrptr, "tcphdr")->source);
+    tcphdr = $ptr - &@cast(0, "tcphdr")[1];
+    sport = __tcp_skb_sport(tcphdr);
 {%- if options.sport != 0 %}
     if ({{options.sport}} != sport) next;
 {%- endif %}
-    dport = ntohs(@cast(tcphdrptr, "tcphdr")->dest);
+    dport = __tcp_skb_dport(tcphdr);
 {%- if options.dport != 0 %}
     if ({{options.dport}} != dport) next;
 {%- endif %}
-    scaled_window = ntohs(@cast(tcphdrptr, "tcphdr")->window);
+    scaled_window = ntohs(@cast(tcphdr, "tcphdr")->window);
     scale_factor = $tp->rx_opt->rcv_wscale
     window = scaled_window << scale_factor;
     window_sizes <<< window/1024;
