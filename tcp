@@ -260,10 +260,11 @@ global last;
 # Plug to tcp_options_write just to be able to also get receive window.
 probe kernel.function("tcp_options_write") {
     # Check if we need to retrieve information
+    state = tcp_ts_get_info_state($tp);
     now = gettimeofday_ms();
-    prev = last[$tp];
+    prev = last[$tp,state];
     if (now - prev <= {{ options.interval }}) next;
-    last[$tp] = now;
+    last[$tp,state] = now;
 
     # Retrieve source and destination port and do filtering
     tcphdr = $ptr - &@cast(0, "tcphdr")[1];
@@ -275,9 +276,6 @@ probe kernel.function("tcp_options_write") {
 {%- if options.sport != 0 %}
     if ({{options.sport}} != sport) next;
 {%- endif %}
-
-    # Get state
-    state = tcp_ts_get_info_state($tp);
 
     # Advertised receive window
     tcphdr = $ptr - &@cast(0, "tcphdr")[1];
