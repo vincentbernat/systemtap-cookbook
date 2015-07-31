@@ -329,7 +329,7 @@ probe kernel.function("tcp_options_write") {
 	   $tp->snd_cwnd,
 	   $tp->advmss,
 	   $tp->reordering);
-    printf(",rcv_rtt:%lu,rcv_space=%lu",
+    printf(",rcv_rtt:%lu,rcv_space:%lu",
 	   cputime_to_usecs($tp->rcv_rtt_est->rtt)>>3,
            $tp->rcvq_space->space);
     printf(",total_retrans:%lu", $tp->total_retrans);
