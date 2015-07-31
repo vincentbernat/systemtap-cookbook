@@ -252,6 +252,9 @@ probe timer.ms({{ options.interval }}) {
             help="filter destination port")
 @stap.d.arg("--interval", metavar="MS", default=100, type=int,
             help="sample rate for a given socket")
+@stap.d.arg("--extensive", default=False,
+            action="store_true",
+            help="display more extensive information")
 def sockstat(options):
     """Display various socket statistics, a bit like `ss'. """
     probe = jinja2.Template(ur"""
@@ -289,10 +292,40 @@ probe kernel.function("tcp_options_write") {
     printf(",state:%s,sport:%d,dport:%d", tcp_sockstate_str(state), sport, dport);
     # Receive and send queues
     printf(",rq:%lu,wq:%lu", $tp->rcv_nxt - $tp->copied_seq, $tp->write_seq - $tp->snd_una);
-    # Backlog for LISTEN sockets
-    printf(",ack_bl:%u,ack_max_bl:%u", @cast($tp, "sock")->sk_ack_backlog, @cast($tp, "sock")->sk_max_ack_backlog);
     # Advertised window
     printf(",advwin:%lu", window);
+    # Other TCP stuff
+    printf(",retransmits:%lu,probes:%lu,backoff:%lu",
+           @cast($tp, "inet_connection_sock")->icsk_retransmits,
+           @cast($tp, "inet_connection_sock")->icsk_probes_out,
+	   @cast($tp, "inet_connection_sock")->icsk_backoff);
+    printf(",snd_wscale:%d,rcv_wscale:%d",
+           $tp->rx_opt->snd_wscale,
+           $tp->rx_opt->rcv_wscale);
+    printf(",rto:%lu,ato:%lu,snd_mss:%lu,rcv_mss:%lu",
+           tcp_get_info_rto($tp),
+           cputime_to_usecs(@cast($tp, "inet_connection_sock")->icsk_ack->ato),
+           $tp->mss_cache,
+	   @cast($tp, "inet_connection_sock")->icsk_ack->rcv_mss);
+    printf(",unacked:%lu,sacked:%lu,lost:%lu,retrans:%lu,fackets:%lu",
+           $tp->packets_out, $tp->sacked_out,
+           $tp->lost_out, $tp->retrans_out, $tp->fackets_out);
+    printf(",last_data_sent:%lu,last_data_recv:%lu,last_ack_recv:%lu",
+           now - cputime_to_msecs($tp->lsndtime),
+	   now - cputime_to_msecs(@cast($tp, "inet_connection_sock")->icsk_ack->lrcvtime),
+	   now - cputime_to_msecs($tp->rcv_tstamp));
+    printf(",rcv_ssthresh:%lu,rtt:%lu,rtt_var:%lu,snd_ssthresh:%lu,snd_cwnd:%lu,advmss:%lu,reordering:%lu",
+	   $tp->rcv_ssthresh,
+	   $tp->srtt_us >> 3,
+	   $tp->mdev_us >> 2,
+	   $tp->snd_ssthresh,
+	   $tp->snd_cwnd,
+	   $tp->advmss,
+	   $tp->reordering);
+    printf(",rcv_rtt:%lu,rcv_space=%lu",
+	   cputime_to_usecs($tp->rcv_rtt_est->rtt)>>3,
+           $tp->rcvq_space->space);
+    printf(",total_retrans:%lu", $tp->total_retrans);
     # skmem stuff
     printf(",skmem_r:%lu,skmem_rb:%lu,skmem_t:%lu,skmem_tb:%lu,skmem_f:%lu,skmem_w:%lu,skmem_o:%lu,skmem_bl:%lu",
            atomic_read(&@cast($tp, "sock")->sk_backlog->rmem_alloc),
@@ -302,6 +335,11 @@ probe kernel.function("tcp_options_write") {
            @cast($tp, "sock")->sk_forward_alloc, @cast($tp, "sock")->sk_wmem_queued,
            atomic_read(&@cast($tp, "sock")->sk_omem_alloc),
            @cast($tp, "sock")->sk_backlog->len);
+
+{%- if options.extensive %}
+    # Backlog for LISTEN sockets
+    printf(",ack_bl:%u,ack_max_bl:%u", @cast($tp, "sock")->sk_ack_backlog, @cast($tp, "sock")->sk_max_ack_backlog);
+{%- endif %}
 
     printf("\n");
 }
