@@ -41,21 +41,26 @@ def get_options(module):
                    default=False,
                    help="silent output")
 
-    parser.add_argument("--stap-module", "-m", metavar="MOD", type=str,
-                        action="append", dest="modules",
-                        help="load unwind data for the specified modules as well")
-    parser.add_argument("--stap-arg", "-a", metavar="ARG", type=str,
-                        action="append",
-                        dest="stapargs",
-                        help="pass an extra argument to the stap utility")
-    parser.add_argument("--stap-no-overload", action="store_true",
-                        dest="stapnooverload",
-                        help="don't check for overload (dangerous)")
     parser.add_argument("--dump", "-D", action="store_true",
                         help="dump the systemtap script source")
     parser.add_argument("--output", "-o", metavar="FILE",
                         dest="stapoutput",
                         help="redirect output to FILE")
+
+    stapg = parser.add_argument_group("systemtap")
+    stapg.add_argument("--stap-module", "-m", metavar="MOD", type=str,
+                       action="append", dest="modules",
+                       help="load unwind data for the specified modules as well")
+    stapg.add_argument("--stap-arg", "-a", metavar="ARG", type=str,
+                       action="append",
+                       dest="stapargs",
+                       help="pass an extra argument to the stap utility")
+    stapg.add_argument("--stap-no-overload", action="store_true",
+                       dest="stapnooverload",
+                       help="don't check for overload (dangerous)")
+    stapg.add_argument("--stap-cmd", metavar="CMD", type=str,
+                       dest="stapcmd",
+                       help="command to run while running the probe")
 
     subparsers = parser.add_subparsers(help="subcommands", dest="command")
     for fn in get_subcommands(module):
@@ -120,6 +125,8 @@ def execute(probe, options, *args):
         cmd += ["-o", str(options.stapoutput)]
     if options.stapargs:
         cmd += options.stapargs
+    if options.stapcmd:
+        cmd += ["-c", str(options.stapcmd)]
     if options.modules:
         cmd += ["--ldd"]
         for m in options.modules:
