@@ -180,12 +180,12 @@ probe kernel.function("tcp_v4_conn_request") {
 
 @stap.d.enable
 @stap.d.linux("4.0.0")
-@stap.d.arg("--sport", metavar="SPORT", type=int,
+@stap.d.arg("--local", metavar="PORT", type=int,
             default=0,
-            help="filter source port")
-@stap.d.arg("--dport", metavar="DPORT", type=int,
+            help="filter on local port")
+@stap.d.arg("--remote", metavar="PORT", type=int,
             default=0,
-            help="filter destination port")
+            help="filter on remote port")
 @stap.d.arg("--interval", metavar="MS", default=1000, type=int,
             help="delay between screen updates in milliseconds")
 @stap.d.arg("--step", metavar="SIZE", type=int,
@@ -203,12 +203,12 @@ global found;
 probe kernel.function("tcp_options_write") {
     tcphdr = $ptr - &@cast(0, "tcphdr")[1];
     sport = __tcp_skb_sport(tcphdr);
-{%- if options.sport != 0 %}
-    if ({{options.sport}} != sport) next;
+{%- if options.local != 0 %}
+    if ({{options.local}} != sport) next;
 {%- endif %}
     dport = __tcp_skb_dport(tcphdr);
-{%- if options.dport != 0 %}
-    if ({{options.dport}} != dport) next;
+{%- if options.remote != 0 %}
+    if ({{options.remote}} != dport) next;
 {%- endif %}
     scaled_window = ntohs(@cast(tcphdr, "tcphdr")->window);
     scale_factor = $tp->rx_opt->rcv_wscale
@@ -244,12 +244,12 @@ probe timer.ms({{ options.interval }}) {
 
 @stap.d.enable
 @stap.d.linux("4.0.0")
-@stap.d.arg("--sport", metavar="SPORT", type=int,
+@stap.d.arg("--local", metavar="PORT", type=int,
             default=0,
-            help="filter source port")
-@stap.d.arg("--dport", metavar="DPORT", type=int,
+            help="filter on local port")
+@stap.d.arg("--remote", metavar="PORT", type=int,
             default=0,
-            help="filter destination port")
+            help="filter on remote port")
 @stap.d.arg("--interval", metavar="MS", default=100, type=int,
             help="sample rate for a given socket")
 @stap.d.arg("--bandwidth", default=False,
@@ -280,11 +280,11 @@ probe kernel.function("tcp_options_write") {
     tcphdr = $ptr - &@cast(0, "tcphdr")[1];
     sport = __tcp_skb_sport(tcphdr);
     dport = __tcp_skb_dport(tcphdr);
-{%- if options.dport != 0 %}
-    if ({{options.dport}} != dport) next;
+{%- if options.remote != 0 %}
+    if ({{options.remote}} != dport) next;
 {%- endif %}
-{%- if options.sport != 0 %}
-    if ({{options.sport}} != sport) next;
+{%- if options.local != 0 %}
+    if ({{options.local}} != sport) next;
 {%- endif %}
 
     # Advertised receive window
