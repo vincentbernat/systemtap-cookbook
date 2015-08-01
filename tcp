@@ -267,6 +267,25 @@ global snd_una;
 global rcv_nxt;
 {%- endif %}
 
+probe begin {
+    # Print a header
+    printf("ts,sk,func,state,sport,dport");
+    printf(",rq,wq,advwin,retransmits,probes,backoff");
+    printf(",snd_wscale,rcv_wscale,rto,ato,snd_mss,rcv_mss");
+    printf(",unacked,scaked,lost,retrans,fackets");
+    printf(",last_data_sent,last_data_rcv,last_ack_recv");
+    printf(",rcv_ssthresh,rtt,rtt_var,snd_ssthresh,snd_cwnd,advmss,reordering");
+    printf(",rcv_rtt,rcv_space,total_retrans");
+    printf(",skmem_r,skmem_rb,skmem_t,skmem_tb,skmem_f,skmem_w,skmem_o,skmem_bl");
+{%- if options.extensive %}
+    printf(",ack_bl,ack_max_bl");
+{%- endif %}
+{%- if options.bandwidth %}
+    printf(",snd_bw,rcv_bw");
+{%- endif %}
+    printf("\n");
+}
+
 # Plug to tcp_options_write just to be able to also get receive window.
 probe kernel.function("tcp_options_write") {
     # Check if we need to retrieve information
@@ -294,34 +313,30 @@ probe kernel.function("tcp_options_write") {
     window = scaled_window << scale_factor;
 
     # Print all available information
-    printf("ts:%lu,sk:%lu", now, $tp);
-    printf(",func:%s", ppfunc());
-    printf(",state:%s,sport:%d,dport:%d", tcp_sockstate_str(state), sport, dport);
-    # Receive and send queues
-    printf(",rq:%lu,wq:%lu", $tp->rcv_nxt - $tp->copied_seq, $tp->write_seq - $tp->snd_una);
-    # Advertised window
-    printf(",advwin:%lu", window);
-    # Other TCP stuff
-    printf(",retransmits:%lu,probes:%lu,backoff:%lu",
+    printf("%lu,%lu,%s,%s,%d,%d", now, $tp, ppfunc(),
+           tcp_sockstate_str(state), sport, dport);
+    printf(",%lu,%lu,%lu,%lu,%lu,%lu",
+           $tp->rcv_nxt - $tp->copied_seq,
+           $tp->write_seq - $tp->snd_una,
+           window,
            @cast($tp, "inet_connection_sock")->icsk_retransmits,
            @cast($tp, "inet_connection_sock")->icsk_probes_out,
 	   @cast($tp, "inet_connection_sock")->icsk_backoff);
-    printf(",snd_wscale:%d,rcv_wscale:%d",
+    printf(",%d,%d,%lu,%lu,%lu,%lu",
            $tp->rx_opt->snd_wscale,
-           $tp->rx_opt->rcv_wscale);
-    printf(",rto:%lu,ato:%lu,snd_mss:%lu,rcv_mss:%lu",
+           $tp->rx_opt->rcv_wscale,
            tcp_get_info_rto($tp),
            cputime_to_usecs(@cast($tp, "inet_connection_sock")->icsk_ack->ato),
            $tp->mss_cache,
 	   @cast($tp, "inet_connection_sock")->icsk_ack->rcv_mss);
-    printf(",unacked:%lu,sacked:%lu,lost:%lu,retrans:%lu,fackets:%lu",
+    printf(",%lu,%lu,%lu,%lu,%lu",
            $tp->packets_out, $tp->sacked_out,
            $tp->lost_out, $tp->retrans_out, $tp->fackets_out);
-    printf(",last_data_sent:%lu,last_data_recv:%lu,last_ack_recv:%lu",
+    printf(",%lu,%lu,%lu",
            now - cputime_to_msecs($tp->lsndtime),
 	   now - cputime_to_msecs(@cast($tp, "inet_connection_sock")->icsk_ack->lrcvtime),
 	   now - cputime_to_msecs($tp->rcv_tstamp));
-    printf(",rcv_ssthresh:%lu,rtt:%lu,rtt_var:%lu,snd_ssthresh:%lu,snd_cwnd:%lu,advmss:%lu,reordering:%lu",
+    printf(",%lu,%lu,%lu,%lu,%lu,%lu,%lu",
 	   $tp->rcv_ssthresh,
 	   $tp->srtt_us >> 3,
 	   $tp->mdev_us >> 2,
@@ -329,12 +344,11 @@ probe kernel.function("tcp_options_write") {
 	   $tp->snd_cwnd,
 	   $tp->advmss,
 	   $tp->reordering);
-    printf(",rcv_rtt:%lu,rcv_space:%lu",
+    printf(",%lu,%lu,%lu",
 	   cputime_to_usecs($tp->rcv_rtt_est->rtt)>>3,
-           $tp->rcvq_space->space);
-    printf(",total_retrans:%lu", $tp->total_retrans);
-    # skmem stuff
-    printf(",skmem_r:%lu,skmem_rb:%lu,skmem_t:%lu,skmem_tb:%lu,skmem_f:%lu,skmem_w:%lu,skmem_o:%lu,skmem_bl:%lu",
+           $tp->rcvq_space->space,
+           $tp->total_retrans);
+    printf(",%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu",
            atomic_read(&@cast($tp, "sock")->sk_backlog->rmem_alloc),
            @cast($tp, "sock")->sk_rcvbuf,
            atomic_read(&@cast($tp, "sock")->sk_wmem_alloc),
@@ -344,8 +358,9 @@ probe kernel.function("tcp_options_write") {
            @cast($tp, "sock")->sk_backlog->len);
 
 {%- if options.extensive %}
-    # Backlog for LISTEN sockets
-    printf(",ack_bl:%u,ack_max_bl:%u", @cast($tp, "sock")->sk_ack_backlog, @cast($tp, "sock")->sk_max_ack_backlog);
+    printf(",%u,%u",
+           @cast($tp, "sock")->sk_ack_backlog,
+           @cast($tp, "sock")->sk_max_ack_backlog);
 {%- endif %}
 
 {%- if options.bandwidth %}
@@ -354,9 +369,13 @@ probe kernel.function("tcp_options_write") {
     snd_una[$tp] = $tp->snd_una;
     rcv_nxt[$tp] = $tp->rcv_nxt;
     if (last_snd_una != 0 && last_snd_una <= $tp->snd_una)
-        printf(",snd_bw:%lu", ($tp->snd_una - last_snd_una)*1000/(now - prev));
+        printf(",%lu", ($tp->snd_una - last_snd_una)*1000/(now - prev));
+    else
+        printf(",");
     if (last_rcv_nxt != 0 && last_rcv_nxt <= $tp->rcv_nxt)
-        printf(",rcv_bw:%lu", ($tp->rcv_nxt - last_rcv_nxt)*1000/(now - prev));
+        printf(",%lu", ($tp->rcv_nxt - last_rcv_nxt)*1000/(now - prev));
+    else
+        printf(",");
 {%- endif %}
 
     printf("\n");
