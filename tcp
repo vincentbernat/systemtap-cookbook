@@ -272,7 +272,7 @@ probe begin {
     printf("ts,sk,func,state,sport,dport");
     printf(",rq,wq,advwin,retransmits,probes,backoff");
     printf(",snd_wscale,rcv_wscale,rto,ato,snd_mss,rcv_mss");
-    printf(",unacked,scaked,lost,retrans,fackets");
+    printf(",unacked,sacked,lost,retrans,fackets");
     printf(",last_data_sent,last_data_rcv,last_ack_recv");
     printf(",rcv_ssthresh,rtt,rtt_var,snd_ssthresh,snd_cwnd,advmss,reordering");
     printf(",rcv_rtt,rcv_space,total_retrans");
