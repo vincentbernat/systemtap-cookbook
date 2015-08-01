@@ -53,6 +53,9 @@ def get_options(module):
                         help="don't check for overload (dangerous)")
     parser.add_argument("--dump", "-D", action="store_true",
                         help="dump the systemtap script source")
+    parser.add_argument("--output", "-o", metavar="FILE",
+                        dest="stapoutput",
+                        help="redirect output to FILE")
 
     subparsers = parser.add_subparsers(help="subcommands", dest="command")
     for fn in get_subcommands(module):
@@ -113,6 +116,8 @@ def execute(probe, options, *args):
         cmd += ["-v"]
     if options.stapnooverload:
         cmd += ["-DSTP_NO_OVERLOAD"]
+    if options.stapoutput:
+        cmd += ["-o", str(options.stapoutput)]
     if options.stapargs:
         cmd += options.stapargs
     if options.modules:
