@@ -316,8 +316,8 @@ probe kernel.function("tcp_options_write") {
     printf("%lu,%lu,%s,%s,%d,%d", now, $tp, ppfunc(),
            tcp_sockstate_str(state), sport, dport);
     printf(",%lu,%lu,%lu,%lu,%lu,%lu",
-           $tp->rcv_nxt - $tp->copied_seq,
-           $tp->write_seq - $tp->snd_una,
+           ($tp->rcv_nxt - $tp->copied_seq) & ((1<<32) - 1),
+           ($tp->write_seq - $tp->snd_una) & ((1<<32) - 1),
            window,
            @cast($tp, "inet_connection_sock")->icsk_retransmits,
            @cast($tp, "inet_connection_sock")->icsk_probes_out,
