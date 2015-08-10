@@ -281,6 +281,7 @@ probe begin {
     printf(",ack_bl,ack_max_bl");
     printf(",gso_segs,rcv_nxt,copied_seq,rcv_wup,snd_nxt,snd_una,snd_sml");
     printf(",window_clamp,snd_cwnd_cnt,snd_cwnd_clamp,prior_cwnd,rcv_wnd,write_seq");
+    printf(",pmtu_enabled,pmtu_low,pmtu_high,pmtu_size");
 {%- endif %}
 {%- if options.bandwidth %}
     printf(",snd_bw,rcv_bw");
@@ -378,6 +379,11 @@ probe kernel.function("tcp_options_write") {
            $tp->prior_cwnd,
            $tp->rcv_wnd,
            $tp->write_seq);
+    printf(",%d,%d,%d,%d",
+           @cast($tp, "inet_connection_sock")->icsk_mtup->enabled,
+           @cast($tp, "inet_connection_sock")->icsk_mtup->search_low,
+           @cast($tp, "inet_connection_sock")->icsk_mtup->search_high,
+           @cast($tp, "inet_connection_sock")->icsk_mtup->probe_size);
 {%- endif %}
 
 {%- if options.bandwidth %}
