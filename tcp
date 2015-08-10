@@ -243,7 +243,7 @@ probe timer.ms({{ options.interval }}) {
 
 
 @stap.d.enable
-@stap.d.linux("4.0.0")
+@stap.d.linux("4.0.0", "4.1.0")
 @stap.d.arg("--local", metavar="PORT", type=int,
             default=0,
             help="filter on local port")

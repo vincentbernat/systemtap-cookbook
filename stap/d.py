@@ -64,10 +64,8 @@ def enable(fn):
     fn.stap_enabled = True
     return fn
 
-def linux(versions):
+def linux(*versions):
     """Emit a warning if running on an untested Linux version."""
-    if not isinstance(versions, (list, tuple)):
-        versions = [ versions ]
     def w(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
