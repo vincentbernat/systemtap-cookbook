@@ -1,0 +1,71 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""AppArmor related tools
+============================
+
+This script will interact with AppArmor to extract some
+information. Notably, it will display more information about denied
+requests.
+
+"""
+
+import sys
+import stap
+import jinja2
+
+
+@stap.d.enable
+@stap.d.linux("3.2")
+@stap.d.warn("untested")
+def audit(options):
+    """Audit backtraces
+
+    For each audit event, display it with the associated
+    backtrace. This should give some additional information on the
+    denied operation.
+
+    """
+    probe = jinja2.Template(ur"""
+// enum audit_type {
+// 	AUDIT_APPARMOR_AUDIT,
+// 	AUDIT_APPARMOR_ALLOWED,
+// 	AUDIT_APPARMOR_DENIED,
+// 	AUDIT_APPARMOR_HINT,
+// 	AUDIT_APPARMOR_STATUS,
+// 	AUDIT_APPARMOR_ERROR,
+// 	AUDIT_APPARMOR_KILL,
+// 	AUDIT_APPARMOR_AUTO
+// };
+global aa_type[12]
+probe begin {
+    aa_type[0] = "AUDIT/AUTO"
+    aa_type[1] = "ALLOWED"
+    aa_type[2] = "DENIED"
+    aa_type[3] = "HINT"
+    aa_type[4] = "STATUS"
+    aa_type[5] = "ERROR"
+    aa_type[6] = "KILL"
+    aa_type[7] = "AUTO"
+}
+
+function aa_type2str:string(type:long) {
+    return (type in aa_type  ? aa_type[type] : "UNDEF")
+}
+
+probe kernel.function("aa_audit_msg") {
+    print("type=%s error=%d op=%d name=%s info=%s\n",
+          aa_type2str($type),
+          $sa->apparmor_audit_data->error, $sa->apparmor_audit_data->op,
+          kernel_string($sa->apparmor_audit_data->name),
+          kernel_string($sa->apparmor_audit_data->info))
+    print("exec=%s pid=%s pp=%s\n", execname(), pid(), pp())
+    print_backtrace()
+}
+
+""")
+    probe = probe.render(options=options).encode("utf-8")
+    stap.execute(probe, options, "--all-modules")
+
+
+stap.run(sys.modules[__name__])
