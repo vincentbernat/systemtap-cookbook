@@ -236,4 +236,83 @@ probe timer.s(1) {
     stap.execute(probe, options)
 
 
+@stap.d.enable
+@stap.d.linux("4.1")
+@stap.d.arg("-T", "--timestamp", action="store_true",
+            help="include timestamp on output")
+@stap.d.arg("--queue", "-Q", action="store_true",
+            help="include OS queued time in IO time")
+@stap.d.arg("--milliseconds", "-m", action="store_true",
+            help="millisecond histogram")
+@stap.d.arg("interval", nargs="?", default=99999999,
+            type=int,
+            help="output interval, in seconds")
+@stap.d.arg("count", nargs="?", default=99999999,
+            type=int,
+            help="number of outputs")
+def latency(options):
+    """Summarize block device I/O latency as a histogram.
+
+    This is a port of Brendan Gregg's biolatency tool available here:
+     https://github.com/iovisor/bcc/blob/master/tools/biolatency
+    """
+    probe = jinja2.Template(ur"""
+global count;
+global latency_stats;
+global start%;
+
+{%- if options.queue %}
+probe kernel.function("blk_account_io_start") {
+    start[@choose_defined($rq,$req)] = gettimeofday_us();
+}
+{%- else %}
+probe kernel.function("blk_start_request") {
+    start[@choose_defined($rq,$req)] = gettimeofday_us();
+}
+probe kernel.function("blk_mq_start_request") {
+    start[@choose_defined($rq,$req)] = gettimeofday_us();
+}
+{% endif %}
+
+probe kernel.function("blk_account_io_completion") {
+    s = start[@choose_defined($rq,$req)];
+    if (s == 0) {
+        next;
+    }
+    delta = gettimeofday_us() - s;
+{%- if options.milliseconds %}
+    delta /= 1000;
+{%- endif %}
+    delete start[@choose_defined($rq,$req)];
+
+    latency_stats <<< delta;
+}
+
+function display_histogram() {
+{%- if options.timestamp %}
+    t = gettimeofday_s();
+    println(ctime(t));
+{%- endif %}
+    if (@count(latency_stats)) {
+        print(@hist_log(latency_stats));
+    }
+    delete latency_stats;
+    delete start;
+}
+
+probe timer.s({{ options.interval }}) {
+    display_histogram();
+    if (++count >= {{ options.count }}) {
+        exit();
+    }
+}
+
+probe end {
+    display_histogram();
+}
+""")
+    probe = probe.render(options=options).encode("utf-8")
+    stap.execute(probe, options)
+
+
 stap.run(sys.modules[__name__])
