@@ -33,6 +33,10 @@ def backtrace(options):
     only kernel is sampled. When requesting user backtraces, a PID
     should be specified, otherwise, the backtraces will be mangled.
 
+    It is possible to generate a flamegraph using Brendan Gregg's
+    scripts available here:
+
+       https://github.com/brendangregg/FlameGraph
     """
     if not options.kernel and not options.user:
         options.kernel = True
