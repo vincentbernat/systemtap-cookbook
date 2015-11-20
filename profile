@@ -41,7 +41,6 @@ global backtraces%;
 global quit;
 
 probe timer.profile {
-    if (!{{ options.condition }}) next;
     if (!quit) {
       backtraces[{{ backtraces }}] <<< 1;
     } else {
