@@ -80,4 +80,65 @@ probe timer.s({{ options.time }}) {
     stap.execute(probe, options, *args)
 
 
+@stap.d.enable
+@stap.d.linux("4.2")
+@stap.d.arg("--time", "-t", default=10, metavar="S", type=int,
+            help="sample during S seconds")
+@stap.d.arg("--max-cpus", default=64, metavar="CPU", type=int,
+            help="maximum number of CPU")
+@stap.d.arg("probe", metavar="PROBE",
+            help="probe point to sample")
+def histogram(options):
+    """Display an histogram of execution times for the provided probe point.
+
+    A probe point can be anything understood by Systemtap. For example:
+
+     - kernel.function("net_rx_action")
+     - process("haproxy").function("frontend_accept")
+    """
+    # Stolen from:
+    #  https://github.com/majek/dump/blob/master/system-tap/histogram-kernel.stp
+    probe = jinja2.Template(ur"""
+global trace[{{ options.max_cpus }}];
+global etime[{{ options.max_cpus }}];
+global intervals;
+
+probe {{ options.probe }}.call {
+    trace[cpu()]++;
+    if (trace[cpu()] == 1) {
+        etime[cpu()] = gettimeofday_ns();
+    }
+}
+
+probe {{ options.probe }}.return {
+    trace[cpu()]--;
+    if (trace[cpu()] <= 0) {
+        t1_ns = etime[cpu()];
+        trace[cpu()] = 0;
+        etime[cpu()] = 0;
+        if (t1_ns == 0) {
+            printf("Cpu %d was already in that function?\n", cpu());
+        } else {
+            intervals <<< (gettimeofday_ns() - t1_ns)/1000;
+        }
+    }
+}
+
+probe end {
+    printf("Duration min:%dus avg:%dus max:%dus count:%d\n",
+           @min(intervals), @avg(intervals), @max(intervals),
+           @count(intervals))
+    printf("Duration (us):\n");
+    print(@hist_log(intervals));
+    printf("\n");
+}
+probe timer.sec( {{options.time }}) {
+    exit();
+}
+""")
+    probe = probe.render(options=options).encode("utf-8")
+    args = "--all-modules"
+    stap.execute(probe, options, *args)
+
+
 stap.run(sys.modules[__name__])
