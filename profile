@@ -10,7 +10,6 @@ userspace backtraces.
 """
 
 import sys
-import os
 import stap
 import jinja2
 
