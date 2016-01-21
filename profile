@@ -81,6 +81,7 @@ probe timer.s({{ options.time }}) {
 
 @stap.d.enable
 @stap.d.linux("4.3")
+@stap.d.warn("buggy")
 @stap.d.arg_pid
 @stap.d.arg("--time", "-t", default=10, metavar="S", type=int,
             help="sample during S seconds")
