@@ -259,7 +259,11 @@ probe timer.ms({{ options.interval }}) {
             action="store_true",
             help="display more extensive information")
 def sockstat(options):
-    """Display various socket statistics, a bit like `ss'. """
+    """Display various socket statistics, a bit like `ss'.
+
+    The data can then be processed with the script available `here
+    <https://github.com/vincentbernat/network-lab/tree/master/lab-latency>`__.
+    """
     probe = jinja2.Template(ur"""
 global last;
 {%- if options.bandwidth %}
