@@ -243,7 +243,7 @@ probe timer.ms({{ options.interval }}) {
 
 
 @stap.d.enable
-@stap.d.linux("4.0.0", "4.1.0")
+@stap.d.linux("3.16.0", "4.0.0", "4.1.0")
 @stap.d.arg("--local", metavar="PORT", type=int,
             default=0,
             help="filter on local port")
@@ -365,7 +365,7 @@ probe kernel.function("tcp_options_write") {
            @cast($tp, "sock")->sk_ack_backlog,
            @cast($tp, "sock")->sk_max_ack_backlog);
     printf(",%u,%lu,%lu,%lu,%lu,%lu,%lu",
-           $tp->gso_segs,
+           @choose_defined($tp->gso_segs, 0),
            $tp->rcv_nxt,
            $tp->copied_seq,
            $tp->rcv_wup,
